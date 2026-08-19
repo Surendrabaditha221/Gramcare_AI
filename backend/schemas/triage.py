@@ -1,8 +1,8 @@
 """
-Pydantic Schemas for Symptom Triage Evaluation API
+Pydantic Schemas for Symptom Triage Evaluation API & Triage Logs
 """
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Any
 
 class TriageRequest(BaseModel):
     patient: Optional[str] = Field(default="Primary User", description="Patient name or ID")
@@ -29,3 +29,48 @@ class TriageResponse(BaseModel):
     warning_information_te: List[str]
     nearby_care_recommendation: str
     disclaimer: str
+    isEmergency: Optional[bool] = False
+    riskLevel: Optional[str] = "low"
+    redFlags: Optional[List[str]] = Field(default_factory=list)
+    emergencyContacts: Optional[Any] = None
+
+class TriageLogCreate(BaseModel):
+    id: Optional[str] = None
+    patientId: Optional[str] = "user_primary"
+    patientName: Optional[str] = None
+    mainComplaint: Optional[str] = ""
+    symptoms: List[str] = Field(default_factory=list)
+    duration: Optional[str] = None
+    severity: Optional[str] = None
+    possibleConditions: List[str] = Field(default_factory=list)
+    riskLevel: Optional[str] = "low"
+    urgencyLevel: Optional[str] = None
+    aiAssessment: Optional[str] = None
+    recommendation: Optional[str] = None
+    recommendedNextActions: List[str] = Field(default_factory=list)
+    warningSigns: List[str] = Field(default_factory=list)
+    ageGroup: Optional[str] = "adult"
+    additionalDetails: Optional[str] = None
+    disclaimer: Optional[str] = None
+
+class TriageLogResponse(BaseModel):
+    id: str
+    userId: str
+    patientId: Optional[str] = "user_primary"
+    patientName: Optional[str] = None
+    mainComplaint: Optional[str] = ""
+    symptoms: List[str] = Field(default_factory=list)
+    duration: Optional[str] = None
+    severity: Optional[str] = None
+    possibleConditions: List[str] = Field(default_factory=list)
+    riskLevel: Optional[str] = "low"
+    urgencyLevel: Optional[str] = None
+    aiAssessment: Optional[str] = None
+    recommendation: Optional[str] = None
+    recommendedNextActions: List[str] = Field(default_factory=list)
+    warningSigns: List[str] = Field(default_factory=list)
+    ageGroup: Optional[str] = "adult"
+    additionalDetails: Optional[str] = None
+    disclaimer: Optional[str] = None
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None

@@ -12,7 +12,8 @@ from typing import Dict, Any, Optional
 
 from google import genai
 from google.genai import types, errors
-from google.genai.models import _GenerateContentParameters_to_mldev
+from services.medical_rag_service import MedicalRAGService
+from services.emergency_service import EmergencyService, LOCALIZED_EMERGENCY_NOTICES
 
 logger = logging.getLogger("gramcare.gemini")
 
@@ -51,6 +52,108 @@ MEDICAL_DISCLAIMER = (
     "or replace consultation with a qualified medical officer or doctor at a Primary Health Centre (PHC)."
 )
 
+GRAMCARE_AI_MASTER_SYSTEM_PROMPT = """
+# GRAMCARE AI - PRODUCTION HEALTHCARE ASSISTANT
+
+You are GramCare AI, the dedicated, empathetic AI Healthcare Assistant for the GramCare rural health companion application in India.
+Your mission is to provide safe, clear, compassionate, and personalized healthcare guidance for rural families.
+
+--------------------------------------------------------
+IDENTITY & CORE PRINCIPLES
+--------------------------------------------------------
+• Role: Empathetic AI Healthcare Assistant (not a replacement for a human doctor).
+• Tone: Caring, calm, respectful, practical, easy to understand, and never robotic or repetitive.
+• Never repeatedly say "I am an AI" or give generic robotic disclaimers on every single turn.
+• Never hallucinate or invent doctors, clinics, or hospitals (e.g., never invent "PHC Rampura"). If user's location is unavailable, say: "Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital."
+• Never fabricate medical history, test reports, or demographic data.
+
+--------------------------------------------------------
+NATURAL CONVERSATION & PROGRESSIVE INQUIRY
+--------------------------------------------------------
+1. DO NOT dump long essay-like template responses on the initial mention of a symptom.
+2. If the user presents a brief or underspecified symptom (e.g. "I have a fever" or "my stomach hurts"):
+   - Acknowledge with genuine empathy ("I'm sorry you are feeling unwell.").
+   - Ask 1 to 3 critical, relevant follow-up questions to understand the situation (e.g., duration, temperature if known, accompanying symptoms like cough/vomiting/chills, severity).
+3. When the user responds with follow-up details (e.g. "102°F" or "for 3 days"):
+   - Maintain multi-turn memory: understand that this answer connects directly to the ongoing discussion.
+   - Do NOT ask repetitive questions that have already been answered.
+   - Synthesize the collected details into clear, structured guidance:
+     * Possible causes (carefully framed as possibilities, never definitive diagnoses).
+     * Practical supportive home care (clean boiled water, ORS fluids, cool sponging, light nutritious foods like khichdi/dal/curd rice, adequate rest).
+     * Clear warning signs to watch for.
+     * Guidance on when to visit the local Primary Health Centre (PHC), CHC, or doctor.
+4. Adapt length and formatting naturally:
+   - For simple or short queries, keep answers concise and easy to read.
+   - For complex situations, use simple bullet points without overwhelming headers.
+
+--------------------------------------------------------
+MEDICAL SAFETY & EMERGENCY PROTOCOL
+--------------------------------------------------------
+• EMERGENCY DETECTION: If the user mentions potential medical emergencies (e.g., severe chest pain, shortness of breath, sudden weakness/paralysis, severe bleeding, snakebite, poisoning, convulsions, loss of consciousness):
+  - STOP routine conversation immediately.
+  - Clearly and urgently advise seeking immediate emergency medical care (Call 108 / 112 emergency ambulance in India or go immediately to the nearest PHC / Hospital).
+• NO PRESCRIPTION MEDICINES: Never prescribe specific prescription medications, antibiotics, or steroid dosages. You may only discuss safe, general supportive care and over-the-counter home hydration measures (such as ORS, resting, drinking fluids).
+• NO CLINICAL EXAMINATION: Never claim to have physically examined the patient. Always clarify that physical examination by a medical officer is necessary for confirmed diagnosis.
+
+--------------------------------------------------------
+PATIENT CONTEXT & MULTI-TURN MEMORY
+--------------------------------------------------------
+• If context specifies a family member (e.g. a child, elderly parent), tailor your guidance specifically to that patient (e.g. pediatric hydration precautions for a child, elderly care precautions).
+• If known allergies or medical conditions are provided in the context, respect them in your advice.
+• Use only real context provided in the prompt; never assume or invent unstated medical history.
+
+--------------------------------------------------------
+LANGUAGE ADAPTABILITY
+--------------------------------------------------------
+• Respond STRICTLY and ENTIRELY in the target language requested (Telugu, Hindi, English, Tamil, Kannada, Malayalam).
+• If Telugu is requested, write fluent, natural, grammatically correct Telugu (తెలుగు) without English mixing.
+• If Hindi is requested, write fluent, natural, respectful Hindi (हिन्दी).
+• If English is requested, write clear, simple, accessible English.
+"""
+
+LANG_NAME_MAP = {
+    "en": "English",
+    "te": "Telugu (తెలుగు)",
+    "hi": "Hindi (हिन्दी)",
+    "ta": "Tamil (தமிழ்)",
+    "kn": "Kannada (ಕನ್ನಡ)",
+    "ml": "Malayalam (മലയാളം)"
+}
+
+def get_localized_non_health(lang: str) -> str:
+    messages = {
+        "te": "నేను గ్రామ్‌కేర్ హెల్త్ అసిస్టెంట్‌ని. నేను కేవలం ఆరోగ్య సమస్యలు, లక్షణాలు, ప్రాథమిక చికిత్స మరియు ఆరోగ్య సంబంధిత సమాచారంలో మాత్రమే సహాయం చేయగలను.",
+        "hi": "मैं ग्रामकेयर हेल्थ असिस्टेंट हूँ और केवल स्वास्थ्य संबंधी समस्याओं, लक्षणों, प्राथमिक चिकित्सा और स्वास्थ्य जानकारी में मदद कर सकता हूँ।",
+        "ta": "நான் கிராம்கேர் சுகாதார உதவியாளராவேன். சுகாதார கேள்விகளுக்கு மட்டுமே நான் பதிலளிக்க முடியும்.",
+        "kn": "ನಾನು ಗ್ರಾಮ್‌ಕೇರ್ ಆರೋಗ್ಯ ಸಹಾಯಕ. ನಾನು ಕೇವಲ ಆರೋಗ್ಯ ಸಮಸ್ಯೆಗಳು ಮತ್ತು ಸಲಹೆಗಳಿಗೆ ಮಾತ್ರ ನೆರವಾಗಬಲ್ಲೆ.",
+        "ml": "ഞാൻ ഗ്രാമകെയർ ആരോഗ്യ സഹായിയാണ്. ആരോഗ്യ സംബന്ധിയായ ചോദ്യങ്ങൾക്ക് മാത്രമേ എനിക്ക് മറുപടി നൽകാൻ കഴിയൂ.",
+        "en": "I'm GramCare, a healthcare assistant. I can help with health concerns, symptoms, first aid, wellness, and healthcare-related questions."
+    }
+    return messages.get(lang, messages["en"])
+
+def get_localized_emergency(lang: str) -> str:
+    messages = {
+        "te": "⚠️ అత్యవసర వైద్య ప్రకటన: మీరు తెలిపిన లక్షణాలు తీవ్రమైనవి. వెంటనే 108 అంబులెన్స్‌కి కాల్ చేయండి లేదా దగ్గరలోని PHC ఆసుపత్రికి వెళ్ళండి. అత్యవసర పరిస్థితిలో గ్రామ్‌కేర్ AI పై మాత్రమే ఆధారపదవద్దు.",
+        "hi": "⚠️ आपातकालीन चेतावनी: आपके लक्षण गंभीर हो सकते हैं। कृपया तुरंत 108 या 112 पर कॉल करके एम्बुलेंस बुलाएं या नजदीकी स्वास्थ्य केंद्र (PHC) जाएं।",
+        "ta": "⚠️ அவசர மருத்துவ எச்சரிக்கை: உங்கள் அறிகுறிகள் தீவிரமாக இருக்கலாம். உடனே 108 அல்லது 112 ஆம்புலன்ஸை அழைக்கவும் அல்லது அருகிலுள்ள ஆரம்ப சுகாதார நிலையத்திற்குச் செல்லவும்.",
+        "kn": "⚠️ ತುರ್ತು ವೈದ್ಯಕೀಯ ಎಚ್ಚರಿಕೆ: ನಿಮ್ಮ ರೋಗಲಕ್ಷಣಗಳು ತೀವ್ರವಾಗಿರಬಹುದು. ತಕ್ಷಣವೇ 108 ಗೆ ಕರೆ ಮಾಡಿ ಅಥವಾ ಹತ್ತಿರದ ಪಿಎಚ್‌ಸಿಗೆ ಭೇಟಿ ನೀಡಿ.",
+        "ml": "⚠️ അടിയന്തര വൈദ്യ മുന്നറിയിപ്പ്: നിങ്ങളുടെ ലക്ഷണങ്ങൾ ഗുരുതരമായേക്കാം. ഉടൻ തന്നെ 108 അല്ലെങ്കിൽ 112 വിളിക്കുകയോ അടുത്തുള്ള പ്രാഥമിക ആരോഗ്യ കേന്ദ്രത്തിൽ പോകുകയോ ചെയ്യുക.",
+        "en": "⚠️ URGENT MEDICAL WARNING: Your query mentions potential emergency symptoms. Please seek emergency medical care immediately. If you are in India, call 108 or 112 for emergency ambulance assistance or visit the nearest Primary Health Centre (PHC) immediately. Do not rely on GramCare AI for emergency treatment."
+    }
+    return messages.get(lang, messages["en"])
+
+def get_localized_greeting(lang: str, patient_name: str) -> str:
+    messages = {
+        "te": f"స్వాగతం {patient_name}. ఈరోజు మీ ఆరోగ్యం ఎలా ఉంది?",
+        "hi": f"वापसी पर स्वागत है {patient_name}। आज आप कैसा महसूस कर रहे हैं?",
+        "ta": f"மீண்டும் வருக {patient_name}. இன்று உங்கள் உடல்நலம் எப்படி உள்ளது?",
+        "kn": f"ಮರಳಿ ಸುಸ್ವಾಗತ {patient_name}. ಇಂದು ನಿಮ್ಮ ಆರೋಗ್ಯ ಹೇಗಿದೆ?",
+        "ml": f"വീണ്ടും സ്വാഗതം {patient_name}. ഇന്ന് നിങ്ങളുടെ ആരോഗ്യം എങ്ങനെയുണ്ട്?",
+        "en": f"Welcome back {patient_name}. How are you feeling today?"
+    }
+    return messages.get(lang, messages["en"])
+
+
 class GeminiService:
 
     @staticmethod
@@ -66,13 +169,18 @@ class GeminiService:
         """
         Evaluate symptom triage. Calls Gemini API if available, or uses rule engine.
         """
-        # Determine if emergency or red flags present
-        red_flag_keywords = ["chest pain", "difficulty breathing", "unconscious", "severe bleeding", "high fever", "convulsions"]
-        is_red_flag = (
-            severity.lower() in ["severe", "high", "emergency"]
-            or any(ws.lower() in red_flag_keywords for ws in warning_signs)
-            or any(s.lower() in red_flag_keywords for s in related_symptoms)
+        # Determine if emergency or red flags present via centralized EmergencyService
+        emergency_assessment = EmergencyService.assess_emergency(
+            user_message=main_complaint,
+            triage_info={
+                "main_complaint": main_complaint,
+                "related_symptoms": related_symptoms,
+                "warning_signs": warning_signs,
+                "severity": severity
+            },
+            patient_context={"age": 3 if age_group == "child" else 70 if age_group == "elderly" else 30}
         )
+        is_red_flag = emergency_assessment["isEmergency"]
 
         client = get_genai_client()
         if client:
@@ -87,11 +195,13 @@ class GeminiService:
                 - Self-Reported Severity: {severity}
                 - Related Symptoms: {', '.join(related_symptoms) if related_symptoms else 'None'}
                 - Warning Signs: {', '.join(warning_signs) if warning_signs else 'None'}
+                - Emergency Red Flags Detected: {', '.join(emergency_assessment['redFlags']) if is_red_flag else 'None'}
 
                 IMPORTANT RULES:
                 1. Provide health guidance / triage support only. Do NOT provide a medical diagnosis.
                 2. Do NOT prescribe specific medicine dosages.
-                3. If severity is high or warning signs exist, escalate immediately to emergency / PHC care.
+                3. If severity is high or warning signs exist or red flags detected, escalate immediately to emergency / PHC care. Set urgency_level to 'Emergency Attention' and severity_code to 'urgent'.
+                4. NO FICTIONAL HOSPITALS OR DOCTORS: NEVER invent hospital names, PHCs, doctors, clinics, or locations. Do NOT generate fictional healthcare facilities such as "PHC Rampura", "CHC Ashta", or fictional doctor names. If the user's location is unavailable, say: "Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital." If verified GPS location data is available, recommend ONLY verified nearby hospitals retrieved from verified location data or Google Maps API.
 
                 Respond ONLY with valid JSON in this structure:
                 {{
@@ -105,11 +215,11 @@ class GeminiService:
                   "recommended_next_actions_te": ["తెలుగు సూచన 1", "తెలుగు సూచన 2", "తెలుగు సూచన 3"],
                   "warning_information_en": ["Warning 1", "Warning 2"],
                   "warning_information_te": ["హెచ్చరిక 1", "హెచ్చరిక 2"],
-                  "nearby_care_recommendation": "Recommended facility type (e.g. PHC Rampura, CHC Ashta, or District Hospital)"
+                  "nearby_care_recommendation": "Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital."
                 }}
                 """
                 response = None
-                for m_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+                for m_name in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]:
                     try:
                         response = client.models.generate_content(
                             model=m_name,
@@ -125,6 +235,13 @@ class GeminiService:
                     if cleaned_text.startswith("```json"):
                         cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
                     parsed = json.loads(cleaned_text)
+                    if is_red_flag:
+                        parsed["urgency_level"] = "Emergency Attention"
+                        parsed["severity_code"] = "urgent"
+                        parsed["isEmergency"] = True
+                        parsed["riskLevel"] = "emergency"
+                        parsed["redFlags"] = emergency_assessment["redFlags"]
+                        parsed["emergencyContacts"] = emergency_assessment["emergencyContacts"]
                     parsed["disclaimer"] = MEDICAL_DISCLAIMER
                     return parsed
             except Exception as e:
@@ -135,19 +252,23 @@ class GeminiService:
             return {
                 "urgency_level": "Emergency Attention",
                 "severity_code": "urgent",
-                "title_en": "URGENT ATTENTION RECOMMENDED — Visit Healthcare Center",
+                "isEmergency": True,
+                "riskLevel": "emergency",
+                "redFlags": emergency_assessment["redFlags"],
+                "emergencyContacts": emergency_assessment["emergencyContacts"],
+                "title_en": "URGENT ATTENTION RECOMMENDED — Possible Medical Emergency",
                 "title_te": "అత్యవసర శ్రద్ధ అవసరం — ఆసుపత్రికి వెళ్ళండి",
-                "summary_en": "High priority symptoms detected. Immediate evaluation by a medical doctor at PHC or District Hospital is strongly recommended.",
+                "summary_en": "Possible emergency symptoms detected. Immediate evaluation by a medical doctor at PHC or District Hospital is strongly recommended.",
                 "summary_te": "తీవ్రమైన లక్షణాలు గుర్తించబడ్డాయి. వెంటనే దగ్గరలోని ఆసుపత్రికి లేదా PHCకి వెళ్ళండి.",
                 "recommended_next_actions_en": [
-                    "Visit nearest Primary Health Centre (PHC) or CHC immediately.",
-                    "Contact your local village ASHA worker for assistance.",
-                    "Call 108 Emergency Ambulance service if symptoms worsen or breathing is obstructed."
+                    "Visit nearest Primary Health Centre (PHC), CHC, or Hospital immediately.",
+                    "Call 108 for Emergency Ambulance transport.",
+                    "Contact your local village ASHA worker for immediate assistance."
                 ],
                 "recommended_next_actions_te": [
                     "వెంటనే PHC ఆసుపత్రికి లేదా CHCకి వెళ్ళండి.",
-                    "గ్రామ ఆశా కార్యకర్తను సంప్రదించండి.",
-                    "108 అంబులెన్స్ సేవలను ఉపయోగించండి."
+                    "108 అంబులెన్స్ సేవలను ఉపయోగించండి.",
+                    "గ్రామ ఆశా కార్యకర్తను సంప్రదించండి."
                 ],
                 "warning_information_en": [
                     "High Fever (>102°F)",
@@ -159,7 +280,7 @@ class GeminiService:
                     "శ్వాస ఆడకపోవడం",
                     "అధిక అలసట"
                 ],
-                "nearby_care_recommendation": "PHC Rampura (1.8 km) or CHC Ashta (14.5 km)",
+                "nearby_care_recommendation": "Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital.",
                 "disclaimer": MEDICAL_DISCLAIMER
             }
         elif severity.lower() == "moderate":
@@ -171,7 +292,7 @@ class GeminiService:
                 "summary_en": "Symptoms require clinical observation to prevent complications. Consult the local PHC doctor for advice.",
                 "summary_te": "లక్షణాలను గమనించి వైద్యుల సలహా తీసుకోండి.",
                 "recommended_next_actions_en": [
-                    "Consult Medical Officer at PHC Rampura during OPD hours.",
+                    "Consult Medical Officer at your nearest Primary Health Centre (PHC) during OPD hours.",
                     "Maintain continuous hydration with clean boiled water or ORS solution.",
                     "Monitor body temperature and rest in a well-ventilated space."
                 ],
@@ -186,7 +307,7 @@ class GeminiService:
                 "warning_information_te": [
                     "48 గంటలు దాటితే ఆసుపత్రికి వెళ్ళండి."
                 ],
-                "nearby_care_recommendation": "PHC Rampura (1.8 km)",
+                "nearby_care_recommendation": "Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital.",
                 "disclaimer": MEDICAL_DISCLAIMER
             }
         else:
@@ -213,7 +334,7 @@ class GeminiService:
                 "warning_information_te": [
                     "శ్వాస ఆడకపోవడం లేదా అధిక జ్వరం వస్తే జాగ్రత్త వహించండి."
                 ],
-                "nearby_care_recommendation": "PHC Rampura Sub-Center (1.8 km)",
+                "nearby_care_recommendation": "Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital.",
                 "disclaimer": MEDICAL_DISCLAIMER
             }
 
@@ -282,8 +403,6 @@ class GeminiService:
         Real Health-Only AI Assistant with Intent Classification, Emergency Escalation,
         Multi-turn Context Memory, Patient Health Context Integration, and Multi-Language Support.
         """
-        is_telugu = language == "te" or any('\u0c00' <= char <= '\u0c7f' for char in message)
-        is_hindi = language == "hi" or any('\u0900' <= char <= '\u097f' for char in message)
         query_lower = message.lower().strip()
 
         # Step 1: Classify Intent
@@ -291,15 +410,11 @@ class GeminiService:
 
         # Step 2: Handle NON_HEALTH_QUERY (Health-Only Boundary Enforcement)
         if intent == "NON_HEALTH_QUERY":
-            reply_en = "I'm GramCare, a healthcare assistant. I can help with health concerns, symptoms, first aid, wellness, and healthcare-related questions."
-            reply_te = "నేను గ్రామ్‌కేర్ హెల్త్ అసిస్టెంట్‌ని. నేను కేవలం ఆరోగ్య సమస్యలు, లక్షణాలు, ప్రాథమిక చికిత్స మరియు ఆరోగ్య సంబంధిత సమాచారంలో మాత్రమే సహాయం చేయగలను."
-            reply_hi = "मैं ग्रामकेयर हेल्थ असिस्टेंट हूँ और केवल स्वास्थ्य संबंधी समस्याओं, लक्षणों, प्राथमिक चिकित्सा और स्वास्थ्य जानकारी में मदद कर सकता हूँ।"
-
-            selected_reply = reply_te if is_telugu else (reply_hi if is_hindi else reply_en)
+            selected_reply = get_localized_non_health(language)
             return {
                 "reply": selected_reply,
-                "teluguReply": reply_te,
-                "hindiReply": reply_hi,
+                "teluguReply": get_localized_non_health("te"),
+                "hindiReply": get_localized_non_health("hi"),
                 "intent": "NON_HEALTH_QUERY",
                 "isEmergency": False,
                 "disclaimer": MEDICAL_DISCLAIMER
@@ -307,15 +422,11 @@ class GeminiService:
 
         # Step 3: Handle EMERGENCY_QUERY (Immediate Urgent Escalation)
         if intent == "EMERGENCY_QUERY":
-            emergency_en = "⚠️ URGENT MEDICAL WARNING: Your query mentions potential emergency symptoms. Please seek emergency medical care immediately. If you are in India, call 108 or 112 for emergency ambulance assistance or visit the nearest Primary Health Centre (PHC) immediately. Do not rely on GramCare AI for emergency treatment."
-            emergency_te = "⚠️ అత్యవసర వైద్య ప్రకటన: మీరు తెలిపిన లక్షణాలు తీవ్రమైనవి. వెంటనే 108 అంబులెన్స్‌కి కాల్ చేయండి లేదా దగ్గరలోని PHC ఆసుపత్రికి వెళ్ళండి. అత్యవసర పరిస్థితిలో గ్రామ్‌కేర్ AI పై మాత్రమే ఆధారపదవద్దు."
-            emergency_hi = "⚠️ आपातकालीन चेतावनी: आपके लक्षण गंभीर हो सकते हैं। कृपया तुरंत 108 या 112 पर कॉल करके एम्बुलेंस बुलाएं या नजदीकी स्वास्थ्य केंद्र (PHC) जाएं।"
-
-            selected_reply = emergency_te if is_telugu else (emergency_hi if is_hindi else emergency_en)
+            selected_reply = get_localized_emergency(language)
             return {
                 "reply": selected_reply,
-                "teluguReply": emergency_te,
-                "hindiReply": emergency_hi,
+                "teluguReply": get_localized_emergency("te"),
+                "hindiReply": get_localized_emergency("hi"),
                 "intent": "EMERGENCY_QUERY",
                 "isEmergency": True,
                 "disclaimer": MEDICAL_DISCLAIMER
@@ -323,13 +434,128 @@ class GeminiService:
 
         # Step 3.5: Handle Greeting / Return User Query
         if query_lower in ["hi", "hello", "hey", "namaste", "namaskaram", "హలో", "నమస్కారం", "నమస్తే", "హాయ్"]:
-            greet_en = f"Welcome back {patient_name}. How are you feeling today?"
-            greet_te = f"స్వాగతం {patient_name}. ఈరోజు మీ ఆరోగ్యం ఎలా ఉంది?"
-            greet_hi = f"वापसी पर स्वागत है {patient_name}। आज आप कैसा महसूस कर रहे हैं?"
+            selected_reply = get_localized_greeting(language, patient_name or "Patient")
             return {
-                "reply": greet_te if is_telugu else (greet_hi if is_hindi else greet_en),
-                "teluguReply": greet_te,
-                "hindiReply": greet_hi,
+                "reply": selected_reply,
+                "teluguReply": get_localized_greeting("te", patient_name or "Patient"),
+                "hindiReply": get_localized_greeting("hi", patient_name or "Patient"),
+                "intent": "GREETING",
+                "isEmergency": False,
+                "disclaimer": MEDICAL_DISCLAIMER
+            }
+
+    @staticmethod
+    def classify_intent(message: str, history: Optional[list] = None, patient_context: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Classifies message intent into:
+        NON_HEALTH_QUERY, EMERGENCY_QUERY, SYMPTOM_QUERY, MEDICATION_QUERY, REPORT_QUERY, WELLNESS_QUERY, HEALTH_QUERY
+        """
+        msg = message.lower().strip()
+
+        # 1. Centralized Emergency Assessment
+        emergency_assessment = EmergencyService.assess_emergency(
+            user_message=message,
+            recent_history=history,
+            patient_context=patient_context
+        )
+        if emergency_assessment["isEmergency"]:
+            return "EMERGENCY_QUERY"
+
+        # 2. Non-health questions check (programming, non-medical trivia, politics, sports, general tech, writing)
+        non_health_keywords = [
+            "python", "java", "javascript", "c++", "c#", "html", "css", "code", "coding", "program", "programming",
+            "bubble sort", "sort", "algorithm", "prime minister", "president", "minister", "capital of", "who is the prime minister", "narendra modi",
+            "biden", "trump", "what is machine learning", "what is ai", "cryptocurrency", "bitcoin", "stock market",
+            "cricket score", "football", "actor", "movie", "math problem", "solve equation", "essay", "story", "poem", "joke", "song", "recipe"
+        ]
+        health_override_keywords = [
+            "doctor", "asha worker", "phc", "chc", "hospital", "fever", "pain", "blood pressure", "diabetes",
+            "medicine", "tablet", "syrup", "disease", "infection", "health", "health assistant", "symptom"
+        ]
+
+        is_non_health = any(nh in msg for nh in non_health_keywords) and not any(ho in msg for ho in health_override_keywords)
+        if is_non_health:
+            return "NON_HEALTH_QUERY"
+
+        # 3. Specific health intent categories
+        if any(kw in msg for kw in ["paracetamol", "medicine", "tablet", "syrup", "dosage", "side effect", "ors", "cetirizine", "dolo", "painkiller"]):
+            return "MEDICATION_QUERY"
+        if any(kw in msg for kw in ["report", "blood test", "hemoglobin", "lab", "test result", "prescription", "rx", "scan", "pathology"]):
+            return "REPORT_QUERY"
+        if any(kw in msg for kw in ["sleep", "exercise", "diet", "nutrition", "weight", "water", "yoga", "walk"]):
+            return "WELLNESS_QUERY"
+        if any(kw in msg for kw in ["fever", "pain", "cough", "headache", "vomiting", "diarrhea", "rash", "cold", "injury", "wound", "stomach", "abdomen", "జ్వరం", "నొప్పి", "దగ్గు", "బుఖార్", "దర్ద్", "ఖాంసీ"]):
+            return "SYMPTOM_QUERY"
+
+        # Context preservation check from history
+        if history and len(history) > 0:
+            last_turns = [h.get("text", h.get("content", "")).lower() for h in history if isinstance(h, dict)]
+            if any("fever" in m or "pain" in m or "cough" in m or "headache" in m or "stomach" in m or "జ్వరం" in m or "నొప్పి" in m for m in last_turns):
+                return "SYMPTOM_QUERY"
+
+        return "HEALTH_QUERY"
+
+    @staticmethod
+    async def chat_companion(
+        message: str,
+        patient_name: Optional[str] = "Patient",
+        language: str = "en",
+        history: Optional[list] = None,
+        patient_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Real Health-Only AI Assistant with Intent Classification, Emergency Escalation,
+        Multi-turn Context Memory, Patient Health Context Integration, and Multi-Language Support.
+        """
+        query_lower = message.lower().strip()
+
+        # Step 1: Centralized Emergency Assessment
+        emergency_assessment = EmergencyService.assess_emergency(
+            user_message=message,
+            recent_history=history,
+            patient_context=patient_context,
+            language=language
+        )
+
+        if emergency_assessment["isEmergency"]:
+            te_assessment = EmergencyService.assess_emergency(message, history, patient_context, language="te")
+            hi_assessment = EmergencyService.assess_emergency(message, history, patient_context, language="hi")
+            return {
+                "reply": emergency_assessment["localizedNotice"],
+                "teluguReply": te_assessment["localizedNotice"],
+                "hindiReply": hi_assessment["localizedNotice"],
+                "intent": "EMERGENCY_QUERY",
+                "isEmergency": True,
+                "riskLevel": emergency_assessment["riskLevel"],
+                "redFlags": emergency_assessment["redFlags"],
+                "recommendedAction": emergency_assessment["recommendedAction"],
+                "requiresImmediateCare": emergency_assessment["requiresImmediateCare"],
+                "emergencyContacts": emergency_assessment["emergencyContacts"],
+                "disclaimer": MEDICAL_DISCLAIMER
+            }
+
+        # Step 2: Classify Intent for Non-Emergency Queries
+        intent = GeminiService.classify_intent(message, history, patient_context)
+
+        # Step 3: Handle NON_HEALTH_QUERY (Health-Only Boundary Enforcement)
+        if intent == "NON_HEALTH_QUERY":
+            selected_reply = get_localized_non_health(language)
+            return {
+                "reply": selected_reply,
+                "teluguReply": get_localized_non_health("te"),
+                "hindiReply": get_localized_non_health("hi"),
+                "intent": "NON_HEALTH_QUERY",
+                "isEmergency": False,
+                "disclaimer": MEDICAL_DISCLAIMER
+            }
+
+        # Step 3.5: Handle Greeting / Return User Query
+        if query_lower in ["hi", "hello", "hey", "namaste", "namaskaram", "హలో", "నమస్కారం", "నమస్తే", "హాయ్"]:
+            selected_reply = get_localized_greeting(language, patient_name or "Patient")
+            return {
+                "reply": selected_reply,
+                "teluguReply": get_localized_greeting("te", patient_name or "Patient"),
+                "hindiReply": get_localized_greeting("hi", patient_name or "Patient"),
                 "intent": "GREETING",
                 "isEmergency": False,
                 "disclaimer": MEDICAL_DISCLAIMER
@@ -351,26 +577,17 @@ class GeminiService:
             if patient_context.get("currentMedications"):
                 context_str += f"Current Medications: {patient_context.get('currentMedications')}\n"
 
+        target_lang_name = LANG_NAME_MAP.get(language, "English")
+
         # Step 4: AI Model Execution via Gemini API (if GEMINI_API_KEY configured)
         client = get_genai_client()
         if client:
             try:
-                system_prompt = (
-                    "You are GramCare AI, a compassionate, health-focused assistant designed for rural healthcare in India.\n"
-                    "CORE RULES:\n"
-                    "1. HEALTH-ONLY ASSISTANT: You ONLY answer health, medical, wellness, first aid, medication, report, and care-seeking questions. If a user asks anything unrelated to health (e.g. coding, bubble sort, politics, essays, stories, general trivia), politely refuse and reply ONLY with: 'I\\'m GramCare, a healthcare assistant. I can help with health concerns, symptoms, first aid, wellness, and healthcare-related questions.'\n"
-                    "2. PATIENT CONTEXT INTEGRATION: Address your advice tailored specifically to the selected patient's age group, gender, and clinical context provided. If the patient is a child, provide pediatric care advice suitable for a child.\n"
-                    "3. CONVERSATIONAL SYMPTOM ASSESSMENT: When a user reports initial symptoms (e.g. 'He has fever' or 'I have stomach pain'), ask 1-2 relevant clarifying questions (duration, temperature, severity, location, accompanying symptoms) instead of dumping a long generic essay.\n"
-                    "4. MULTI-TURN CONTEXT: Preserve conversation context across turns. If the user provides a follow-up answer, recognize that it relates to the ongoing symptom discussion.\n"
-                    "5. STRUCTURED RESPONSES: When sufficient details are provided, structure your advice into clear sections:\n"
-                    "   - Possible Causes (use non-certain phrasing like 'Possible causes include...', 'This can sometimes be associated with...')\n"
-                    "   - What You Can Do Now (safe home care, hydration, rest, cold sponging)\n"
-                    "   - Warning Signs to Watch For\n"
-                    "   - When to See a Doctor / Visit PHC\n"
-                    "6. MEDICATION SAFETY: Explain general uses, precautions, and side effects. NEVER prescribe prescription drugs or invent exact dosages. Advise consulting PHC medical officer.\n"
-                    "7. LANGUAGE: Detect user language (English, Telugu, Hindi, or mixed) and reply naturally in that language.\n"
-                    "Always emphasize that you are a health companion for informational awareness and not a substitute for a qualified doctor."
-                )
+                system_prompt = GRAMCARE_AI_MASTER_SYSTEM_PROMPT
+
+                # Retrieve trusted medical sources from knowledge base (RAG layer)
+                retrieved_sources = MedicalRAGService.retrieve_relevant_sources(message, language=language)
+                sources_prompt_str = MedicalRAGService.format_sources_for_prompt(retrieved_sources)
 
                 formatted_history = ""
                 if history:
@@ -379,7 +596,14 @@ class GeminiService:
                         txt = h.get("text") or h.get("content") or ""
                         formatted_history += f"{role}: {txt}\n"
 
-                user_prompt = f"Clinical Patient Context:\n{context_str}\nConversation History:\n{formatted_history}\nUser Message: {message}"
+                user_prompt = (
+                    f"Target Output Language: {target_lang_name} ({language})\n"
+                    f"CRITICAL INSTRUCTION: You MUST write your entire response ONLY in {target_lang_name}. Do NOT use English unless the selected language is English.\n\n"
+                    f"==================== CLINICAL PATIENT CONTEXT ====================\n{context_str}\n\n"
+                    f"==================== CONVERSATION HISTORY ====================\n{formatted_history}\n\n"
+                    f"==================== RETRIEVED TRUSTED MEDICAL KNOWLEDGE ====================\n{sources_prompt_str}\n\n"
+                    f"==================== USER QUESTION ====================\n{message}"
+                )
 
                 config = types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -388,7 +612,7 @@ class GeminiService:
                 )
 
                 response = None
-                for m_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+                for m_name in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]:
                     try:
                         response = client.models.generate_content(
                             model=m_name,
@@ -404,12 +628,18 @@ class GeminiService:
 
                 if response and response.text:
                     reply_text = response.text.strip()
+                    # Append citations if sources were retrieved and not already in text
+                    if retrieved_sources and not ("Sources:" in reply_text or "ఆధారాలు" in reply_text or "स्रोतः" in reply_text or "ஆதாரங்கள்" in reply_text):
+                        citations_footer = MedicalRAGService.format_citations_text(retrieved_sources, language=language)
+                        reply_text += citations_footer
+
                     return {
                         "reply": reply_text,
-                        "teluguReply": reply_text if is_telugu else "ఆరోగ్య సలహా కోసం గ్రామ PHC లేదా ASHA కార్యకర్తను సంప్రదించండి.",
-                        "hindiReply": reply_text if is_hindi else "स्वास्थ्य सलाह के लिए निकटतम प्राथमिक स्वास्थ्य केंद्र (PHC) संपर्क करें।",
+                        "teluguReply": reply_text if language == "te" else "ఆరోగ్య సలహా కోసం గ్రామ PHC లేదా ASHA కార్యకర్తను సంప్రదించండి.",
+                        "hindiReply": reply_text if language == "hi" else "स्वास्थ्य सलाह के लिए निकटतम प्राथमिक स्वास्थ्य केंद्र (PHC) संपर्क करें।",
                         "intent": intent,
                         "isEmergency": False,
+                        "sources": retrieved_sources,
                         "disclaimer": MEDICAL_DISCLAIMER
                     }
             except Exception as e:
@@ -433,7 +663,7 @@ class GeminiService:
                     "• Temperature exceeding 102°F\n"
                     "• Severe headache, neck stiffness, or vomiting\n\n"
                     "When to See a Doctor:\n"
-                    "If the fever lasts longer than 48 hours, please visit PHC Rampura or consult the local Medical Officer."
+                    "If the fever lasts longer than 48 hours, please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital."
                 )
             else:
                 reply_text = f"I'm sorry {patient_name} is feeling unwell. I can help you understand this fever. How long have you had the fever, and if you measured your temperature, what was it?"
@@ -450,7 +680,7 @@ class GeminiService:
                     "2. Drink small sips of warm water.\n"
                     "3. Rest comfortably without pressing on the abdomen.\n\n"
                     "When to See a Doctor:\n"
-                    "If the pain becomes severe, sharp, or accompanied by vomiting or fever, seek immediate evaluation at PHC Rampura."
+                    "If the pain becomes severe, sharp, or accompanied by vomiting or fever, please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital."
                 )
             else:
                 reply_text = "Where is the stomach pain located — upper abdomen, lower abdomen, right side, left side, or all over?"
@@ -493,7 +723,7 @@ class GeminiService:
                 "Precautions & Safety:\n"
                 "• Always follow dosage instructions provided by a doctor or pharmacist.\n"
                 "• Avoid double-dosing or taking multiple medicines containing paracetamol.\n"
-                "• Consult the Medical Officer at PHC Rampura for exact dosage based on age and weight."
+                "• Consult the Medical Officer at your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital for exact dosage based on age and weight."
             )
 
         elif intent == "REPORT_QUERY":
@@ -513,8 +743,8 @@ class GeminiService:
 
         return {
             "reply": reply_text,
-            "teluguReply": reply_text if is_telugu else "ఆరోగ్య సలహా కోసం గ్రామ PHC లేదా ASHA కార్యకర్తను సంప్రదించండి.",
-            "hindiReply": reply_text if is_hindi else "स्वास्थ्य सलाह के लिए निकटतम प्राथमिक स्वास्थ्य केंद्र (PHC) से संपर्क करें।",
+            "teluguReply": reply_text if language == "te" else "ఆరోగ్య సలహా కోసం గ్రామ PHC లేదా ASHA కార్యకర్తను సంప్రదించండి.",
+            "hindiReply": reply_text if language == "hi" else "स्वास्थ्य सलाह के लिए निकटतम प्राथमिक स्वास्थ्य केंद्र (PHC) से संपर्क करें।",
             "intent": intent,
             "isEmergency": False,
             "disclaimer": MEDICAL_DISCLAIMER
@@ -538,28 +768,19 @@ class GeminiService:
         chunk_count = 0
         first_chunk_latency = None
 
-        is_telugu = language == "te" or any('\u0c00' <= char <= '\u0c7f' for char in message)
-        is_hindi = language == "hi" or any('\u0900' <= char <= '\u097f' for char in message)
-
         # Step 1: Classify Intent
         intent = GeminiService.classify_intent(message, history)
 
         # Step 2: Handle NON_HEALTH_QUERY
         if intent == "NON_HEALTH_QUERY":
-            reply_en = "I'm GramCare, a healthcare assistant. I can help with health concerns, symptoms, first aid, wellness, and healthcare-related questions."
-            reply_te = "నేను గ్రామ్‌కేర్ హెల్త్ అసిస్టెంట్‌ని. నేను కేవలం ఆరోగ్య సమస్యలు, లక్షణాలు, ప్రాథమిక చికిత్స మరియు ఆరోగ్య సంబంధిత సమాచారంలో మాత్రమే సహాయం చేయగలను."
-            reply_hi = "मैं ग्रामकेयर हेल्थ असिस्टेंट हूँ और केवल स्वास्थ्य संबंधी समस्याओं, लक्षणों, प्राथमिक चिकित्सा और स्वास्थ्य जानकारी में मदद कर सकता हूँ।"
-            reply = reply_te if is_telugu else (reply_hi if is_hindi else reply_en)
+            reply = get_localized_non_health(language)
             logger.info("[STREAM Boundary] Non-health query intent detected. Yielding boundary response.")
             yield reply
             return
 
         # Step 3: Handle EMERGENCY_QUERY
         if intent == "EMERGENCY_QUERY":
-            emergency_en = "⚠️ URGENT MEDICAL WARNING: Your query mentions potential emergency symptoms. Please seek emergency medical care immediately. If you are in India, call 108 or 112 for emergency ambulance assistance or visit the nearest Primary Health Centre (PHC) immediately. Do not rely on GramCare AI for emergency treatment."
-            emergency_te = "⚠️ అత్యవసర వైద్య ప్రకటన: మీరు తెలిపిన లక్షణాలు తీవ్రమైనవి. వెంటనే 108 అంబులెన్స్‌కి కాల్ చేయండి లేదా దగ్గరలోని PHC ఆసుపత్రికి వెళ్ళండి. అత్యవసర పరిస్థితిలో గ్రామ్‌కేర్ AI పై మాత్రమే ఆధారపదవద్దు."
-            emergency_hi = "⚠️ आपातकालीन चेतावनी: आपके लक्षण गंभीर हो सकते हैं। कृपया तुरंत 108 या 112 पर कॉल करके एम्बुलेंस बुलाएं या नजदीकी स्वास्थ्य केंद्र (PHC) जाएं।"
-            emergency_msg = emergency_te if is_telugu else (emergency_hi if is_hindi else emergency_en)
+            emergency_msg = get_localized_emergency(language)
             logger.info("[STREAM Emergency] Emergency query intent detected. Yielding emergency warning.")
             yield emergency_msg
             return
@@ -580,26 +801,17 @@ class GeminiService:
             if patient_context.get("currentMedications"):
                 context_str += f"Current Medications: {patient_context.get('currentMedications')}\n"
 
+        target_lang_name = LANG_NAME_MAP.get(language, "English")
+
         # Step 5: AI Streaming Execution via Gemini API (if GEMINI_API_KEY configured)
         client = get_genai_client()
         if client:
             try:
-                system_prompt = (
-                    "You are GramCare AI, a compassionate, health-focused assistant designed for rural healthcare in India.\n"
-                    "CORE RULES:\n"
-                    "1. HEALTH-ONLY ASSISTANT: You ONLY answer health, medical, wellness, first aid, medication, report, and care-seeking questions. If a user asks anything unrelated to health (e.g. coding, bubble sort, politics, essays, stories, general trivia), politely refuse and reply ONLY with: 'I\\'m GramCare, a healthcare assistant. I can help with health concerns, symptoms, first aid, wellness, and healthcare-related questions.'\n"
-                    "2. PATIENT CONTEXT INTEGRATION: Address your advice tailored specifically to the selected patient's age group, gender, and clinical context provided. If the patient is a child, provide pediatric care advice suitable for a child.\n"
-                    "3. CONVERSATIONAL SYMPTOM ASSESSMENT: When a user reports initial symptoms (e.g. 'He has fever' or 'I have stomach pain'), ask 1-2 relevant clarifying questions (duration, temperature, severity, location, accompanying symptoms) instead of dumping a long generic essay.\n"
-                    "4. MULTI-TURN CONTEXT: Preserve conversation context across turns. If the user provides a follow-up answer, recognize that it relates to the ongoing symptom discussion.\n"
-                    "5. STRUCTURED RESPONSES: When sufficient details are provided, structure your advice into clear sections:\n"
-                    "   - Possible Causes (use non-certain phrasing like 'Possible causes include...', 'This can sometimes be associated with...')\n"
-                    "   - What You Can Do Now (safe home care, hydration, rest, cold sponging)\n"
-                    "   - Warning Signs to Watch For\n"
-                    "   - When to See a Doctor / Visit PHC\n"
-                    "6. MEDICATION SAFETY: Explain general uses, precautions, and side effects. NEVER prescribe prescription drugs or invent exact dosages. Advise consulting PHC medical officer.\n"
-                    "7. LANGUAGE: Detect user language (English, Telugu, Hindi, or mixed) and reply naturally in that language.\n"
-                    "Always emphasize that you are a health companion for informational awareness and not a substitute for a qualified doctor."
-                )
+                system_prompt = GRAMCARE_AI_MASTER_SYSTEM_PROMPT
+
+                # Retrieve trusted medical sources from knowledge base (RAG layer)
+                retrieved_sources = MedicalRAGService.retrieve_relevant_sources(message, language=language)
+                sources_prompt_str = MedicalRAGService.format_sources_for_prompt(retrieved_sources)
 
                 formatted_history = ""
                 if history:
@@ -608,7 +820,14 @@ class GeminiService:
                         txt = h.get("text") or h.get("content") or ""
                         formatted_history += f"{role}: {txt}\n"
 
-                user_prompt = f"Clinical Patient Context:\n{context_str}\nConversation History:\n{formatted_history}\nUser Message: {message}"
+                user_prompt = (
+                    f"Target Output Language: {target_lang_name} ({language})\n"
+                    f"CRITICAL INSTRUCTION: You MUST write your entire response ONLY in {target_lang_name}. Do NOT use English unless the selected language is English.\n\n"
+                    f"==================== CLINICAL PATIENT CONTEXT ====================\n{context_str}\n\n"
+                    f"==================== CONVERSATION HISTORY ====================\n{formatted_history}\n\n"
+                    f"==================== RETRIEVED TRUSTED MEDICAL KNOWLEDGE ====================\n{sources_prompt_str}\n\n"
+                    f"==================== USER QUESTION ====================\n{message}"
+                )
 
                 config = types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -617,7 +836,7 @@ class GeminiService:
                 )
 
                 # Valid Gemini models in google-genai catalog (no invalid gemini-2.5-flash)
-                for m_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+                for m_name in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]:
                     endpoint_str = f"https://generativelanguage.googleapis.com/v1beta/models/{m_name}:streamGenerateContent"
                     request_json_str = serialize_request_json(client, m_name, user_prompt, config)
 
@@ -639,6 +858,7 @@ class GeminiService:
                             config=config
                         )
                         streamed_any = False
+                        accumulated_text = ""
                         async for chunk in response_stream:
                             if chunk and chunk.text:
                                 chunk_count += 1
@@ -649,10 +869,16 @@ class GeminiService:
                                     logger.info(f"[STREAM SUCCESS] First chunk received in {first_chunk_latency:.3f}s from model: {m_name}")
 
                                 logger.info(f"[STREAM CHUNK] Model: {m_name} | Chunk #{chunk_count} | length: {len(chunk.text)} chars | Elapsed: {elapsed:.3f}s")
+                                accumulated_text += chunk.text
                                 yield chunk.text
                                 streamed_any = True
 
                         if streamed_any:
+                            # Stream citations footer if sources were retrieved and not present in accumulated text
+                            if retrieved_sources and not ("Sources:" in accumulated_text or "ఆధారాలు" in accumulated_text or "स्रोतः" in accumulated_text or "ஆதாரங்கள்" in accumulated_text):
+                                citations_footer = MedicalRAGService.format_citations_text(retrieved_sources, language=language)
+                                yield citations_footer
+
                             logger.info(f"[STREAM COMPLETE] Model: {m_name} | Total Chunks: {chunk_count} | First Chunk Latency: {first_chunk_latency:.3f}s | Duration: {time.time() - start_time:.3f}s")
                             return
 
@@ -735,7 +961,7 @@ class GeminiService:
                 }}
                 """
                 response = None
-                for m_name in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+                for m_name in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]:
                     try:
                         response = client.models.generate_content(
                             model=m_name,
@@ -759,7 +985,7 @@ class GeminiService:
             return {
                 "doc_type": "Prescription",
                 "extracted_patient_name": patient_name,
-                "doctor_or_lab_name": "Dr. Anita Sharma (PHC Medical Officer)",
+                "doctor_or_lab_name": "Medical Officer (PHC)",
                 "date": "2026-08-02",
                 "key_findings": [
                     "Diagnosis: Acute Viral Fever & Upper Respiratory Infection",
@@ -771,7 +997,7 @@ class GeminiService:
                     "ORS Powder Packets (1L daily)",
                     "Cetirizine 10mg (HS x 3 days)"
                 ],
-                "follow_up_instructions": "Visit PHC Rampura after 3 days if temperature remains elevated."
+                "follow_up_instructions": "Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital if temperature remains elevated."
             }
         else:
             return {

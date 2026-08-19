@@ -2,7 +2,7 @@ import urllib.request
 import json
 import time
 
-url = 'http://127.0.0.1:8001/api/chat/stream'
+url = 'http://127.0.0.1:8000/api/chat/stream'
 payload = {
     'message': 'I have had fever and cough for 2 days',
     'patient_name': 'Primary User',

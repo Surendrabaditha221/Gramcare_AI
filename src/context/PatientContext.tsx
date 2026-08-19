@@ -38,7 +38,7 @@ interface PatientContextType {
 const PatientContext = createContext<PatientContextType | undefined>(undefined);
 
 export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, updateUserSession } = useAuth();
   const userUid = user?.uid;
   const userEmail = user?.email;
 
@@ -59,10 +59,19 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const mongoProfile = await fetchUserProfileBackend(userEmail || undefined, userUid || undefined);
         if (mongoProfile) {
+          const isCompleted = Boolean(
+            localStorage.getItem('gramcare_onboarding_completed') === 'true' ||
+            mongoProfile.profileCompleted ||
+            mongoProfile.isProfileCompleted ||
+            mongoProfile.isOnboardingCompleted ||
+            (mongoProfile.dob && (mongoProfile.fullName || mongoProfile.displayName))
+          );
           const merged: UserProfile = {
             ...profile,
             ...mongoProfile,
-            isOnboardingCompleted: true
+            profileCompleted: isCompleted,
+            isProfileCompleted: isCompleted,
+            isOnboardingCompleted: isCompleted
           };
           setProfile(merged);
           localStorageService.saveUserProfile(merged, userUid);
@@ -74,11 +83,20 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (primary) {
               const family = backendPatients.filter(p => p.id !== primary.id);
               const deduplicated = deduplicateFamily([...(profile.familyMembers || []), ...(family as any)]);
+              const isCompleted = Boolean(
+                localStorage.getItem('gramcare_onboarding_completed') === 'true' ||
+                primary.profileCompleted ||
+                primary.isProfileCompleted ||
+                primary.isOnboardingCompleted ||
+                (primary.dob && (primary.fullName || primary.displayName))
+              );
               const merged: UserProfile = {
                 ...profile,
                 ...primary,
                 familyMembers: deduplicated,
-                isOnboardingCompleted: Boolean(primary.fullName && primary.age)
+                profileCompleted: isCompleted,
+                isProfileCompleted: isCompleted,
+                isOnboardingCompleted: isCompleted
               };
               setProfile(merged);
               localStorageService.saveUserProfile(merged, userUid);
@@ -103,11 +121,22 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const recalculated: UserProfile = {
       ...updatedProfile,
       age: updatedProfile.dob ? calculateAgeFromDOB(updatedProfile.dob) : updatedProfile.age,
+      profileCompleted: true,
+      isProfileCompleted: true,
       isOnboardingCompleted: true
     };
+    localStorage.setItem('gramcare_onboarding_completed', 'true');
     localStorageService.saveUserProfile(recalculated, userUid);
     indexedDbService.saveUserProfile(recalculated);
     setProfile(recalculated);
+
+    if (updateUserSession) {
+      updateUserSession({
+        profileCompleted: true,
+        isProfileCompleted: true,
+        isOnboardingCompleted: true
+      });
+    }
 
     saveUserProfileBackend({ ...recalculated, uid: userUid, userId: userUid, email: userEmail }).catch(err => {
       console.warn('Backend user profile update deferred to offline sync:', err);

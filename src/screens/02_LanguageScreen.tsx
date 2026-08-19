@@ -4,12 +4,15 @@ import { useLanguage } from '../hooks/useLanguage';
 import { SCHEDULED_INDIAN_LANGUAGES, IndianLanguage } from '../data/indianLanguages';
 import { PrimaryButton } from '../components/Common/PrimaryButton';
 
+import { useAuth } from '../context/AuthContext';
+
 interface LanguageScreenProps {
   onNext: () => void;
 }
 
 export const LanguageScreen: React.FC<LanguageScreenProps> = ({ onNext }) => {
   const { lang, switchLanguage, t } = useLanguage();
+  const { updateUserLanguage } = useAuth();
   const [selectedCode, setSelectedCode] = useState<string>(lang || '');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -26,6 +29,14 @@ export const LanguageScreen: React.FC<LanguageScreenProps> = ({ onNext }) => {
   const handleSelectLanguage = (code: string) => {
     setSelectedCode(code);
     switchLanguage(code);
+  };
+
+  const handleContinue = () => {
+    if (selectedCode) {
+      switchLanguage(selectedCode);
+      updateUserLanguage(selectedCode).catch(() => {});
+    }
+    onNext();
   };
 
   return (
@@ -139,7 +150,7 @@ export const LanguageScreen: React.FC<LanguageScreenProps> = ({ onNext }) => {
       </div>
 
       <PrimaryButton
-        onClick={onNext}
+        onClick={handleContinue}
         disabled={!selectedCode}
         style={{
           fontSize: '17px',

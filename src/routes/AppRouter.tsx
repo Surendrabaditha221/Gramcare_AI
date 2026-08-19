@@ -3,6 +3,7 @@ import { AppLayout } from '../layouts/AppLayout';
 
 // 18 Screens Imports
 import { SplashScreen } from '../screens/01_SplashScreen';
+import { AIIntroScreen } from '../screens/00_AIIntroScreen';
 import { LanguageScreen } from '../screens/02_LanguageScreen';
 import { OnboardingScreen } from '../screens/03_OnboardingScreen';
 import { LoginSignupScreen } from '../screens/04_LoginSignupScreen';
@@ -65,26 +66,50 @@ export const AppRouter: React.FC = () => {
     setNotifications(localStorageService.getNotifications(user?.uid));
   }, [user?.uid]);
 
+  const userHasCompletedProfile = Boolean(
+    user && (
+      user.profileCompleted ||
+      user.isProfileCompleted ||
+      user.isOnboardingCompleted ||
+      profile?.profileCompleted ||
+      profile?.isProfileCompleted ||
+      profile?.isOnboardingCompleted ||
+      (profile?.fullName && (profile?.dob || profile?.age))
+    )
+  );
+
   // Smart Initial Route & Persistent Auto-Login Handler
   useEffect(() => {
     if (authLoading) return;
+    // Do NOT interrupt splash or intro animations!
+    if (['splash', 'ai_intro'].includes(currentRoute)) return;
+
+    const isLanguageSet = Boolean(
+      localStorage.getItem('gramcare_language_selected') === 'true' ||
+      (user && (user.language || user.preferredLanguage))
+    );
 
     if (user) {
-      if (profile.isOnboardingCompleted || (profile.fullName && profile.age)) {
-        if (['splash', 'language', 'onboarding', 'auth', 'profile_setup', 'profile_confirm'].includes(currentRoute)) {
+      if (userHasCompletedProfile) {
+        if (['onboarding', 'auth', 'language', 'profile_setup', 'profile_confirm'].includes(currentRoute)) {
           setCurrentRoute('home');
         }
       } else {
-        if (['splash', 'language', 'onboarding', 'auth'].includes(currentRoute)) {
-          setCurrentRoute('profile_setup');
+        if (currentRoute === 'auth') {
+          if (!isLanguageSet) {
+            setCurrentRoute('language');
+          } else {
+            setCurrentRoute('profile_setup');
+          }
         }
       }
     } else {
-      if (['home', 'patient_select', 'assistant', 'triage', 'triage_result', 'scanner', 'records', 'nearby', 'notifications', 'profile', 'settings'].includes(currentRoute)) {
+      const protectedRoutes = ['home', 'patient_select', 'assistant', 'triage', 'triage_result', 'scanner', 'records', 'nearby', 'notifications', 'profile', 'settings'];
+      if (protectedRoutes.includes(currentRoute)) {
         setCurrentRoute('auth');
       }
     }
-  }, [user, profile.isOnboardingCompleted, profile.fullName, authLoading]);
+  }, [user, userHasCompletedProfile, authLoading, currentRoute]);
 
   // Load IndexedDB records on mount if available
   useEffect(() => {
@@ -95,17 +120,19 @@ export const AppRouter: React.FC = () => {
     });
   }, []);
 
-  // Sync Google Auth display name with profile
+  // Sync Google Auth display name & email with primary patient profile
   useEffect(() => {
     if (user && user.displayName && profile.fullName !== user.displayName) {
       const updated = {
         ...profile,
-        fullName: user.displayName
+        fullName: user.displayName,
+        email: user.email || profile.email
       };
+      updatePrimaryProfile(updated);
       localStorageService.saveUserProfile(updated, user.uid);
       indexedDbService.saveUserProfile(updated);
     }
-  }, [user]);
+  }, [user?.displayName, user?.email]);
 
   // Automatic sync when connection returns
   useEffect(() => {
@@ -127,6 +154,7 @@ export const AppRouter: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    localStorage.removeItem('gramcare_onboarding_completed');
     await logout();
     setTriageDataResult(null);
     selectPatient('user_primary');
@@ -135,7 +163,7 @@ export const AppRouter: React.FC = () => {
     if (typeof window !== 'undefined' && window.history) {
       window.history.pushState(null, '', window.location.pathname);
     }
-    navigateTo('splash');
+    navigateTo('auth');
   };
 
   // Route protection effect
@@ -221,7 +249,7 @@ export const AppRouter: React.FC = () => {
     setNotifications(updated);
   };
 
-  if (authLoading) {
+  if (authLoading && !['splash', 'ai_intro'].includes(currentRoute)) {
     return (
       <div style={{
         display: 'flex',
@@ -244,10 +272,79 @@ export const AppRouter: React.FC = () => {
     return (
       <SplashScreen
         onComplete={() => {
-          if (user) {
-            navigateTo(profile.isOnboardingCompleted || (profile.fullName && profile.age) ? 'home' : 'profile_setup');
+          navigateTo('ai_intro');
+        }}
+      />
+    );
+  }
+  if (currentRoute === 'ai_intro') {
+    return (
+      <AIIntroScreen
+        onComplete={() => {
+          const isLanguageSet = Boolean(
+            localStorage.getItem('gramcare_language_selected') === 'true' ||
+            (user && (user.language || user.preferredLanguage))
+          );
+
+          if (user && userHasCompletedProfile) {
+            // Logged-in / Returning User -> Direct to Dashboard!
+            navigateTo('home');
+          } else if (user) {
+            // Logged-in user without completed patient profile -> Language / Profile Setup
+            if (!isLanguageSet) {
+              navigateTo('language');
+            } else {
+              navigateTo('profile_setup');
+            }
           } else {
+            // First-Time User (Not logged in)
+            const hasSeenOnboarding = localStorage.getItem('gramcare_has_seen_onboarding') === 'true';
+            if (!hasSeenOnboarding) {
+              navigateTo('onboarding');
+            } else if (!isLanguageSet) {
+              navigateTo('language');
+            } else {
+              navigateTo('auth');
+            }
+          }
+        }}
+      />
+    );
+  }
+  if (currentRoute === 'onboarding') {
+    return (
+      <OnboardingScreen
+        onComplete={() => {
+          localStorage.setItem('gramcare_has_seen_onboarding', 'true');
+          const isLanguageSet = Boolean(
+            localStorage.getItem('gramcare_language_selected') === 'true' ||
+            (user && (user.language || user.preferredLanguage))
+          );
+          if (!isLanguageSet) {
             navigateTo('language');
+          } else if (user) {
+            navigateTo('profile_setup');
+          } else {
+            navigateTo('auth');
+          }
+        }}
+      />
+    );
+  }
+  if (currentRoute === 'auth') {
+    return (
+      <LoginSignupScreen
+        onSuccess={() => {
+          const isLanguageSet = Boolean(
+            localStorage.getItem('gramcare_language_selected') === 'true' ||
+            (user && (user.language || user.preferredLanguage))
+          );
+          if (userHasCompletedProfile) {
+            navigateTo('home');
+          } else if (!isLanguageSet) {
+            navigateTo('language');
+          } else {
+            navigateTo('profile_setup');
           }
         }}
       />
@@ -257,23 +354,14 @@ export const AppRouter: React.FC = () => {
     return (
       <LanguageScreen
         onNext={() => {
-          if (user) {
-            navigateTo(profile.isOnboardingCompleted || (profile.fullName && profile.age) ? 'home' : 'profile_setup');
+          localStorage.setItem('gramcare_language_selected', 'true');
+          if (user && userHasCompletedProfile) {
+            navigateTo('home');
+          } else if (user) {
+            navigateTo('profile_setup');
           } else {
             navigateTo('auth');
           }
-        }}
-      />
-    );
-  }
-  if (currentRoute === 'onboarding') {
-    return <OnboardingScreen onComplete={() => navigateTo('auth')} />;
-  }
-  if (currentRoute === 'auth') {
-    return (
-      <LoginSignupScreen
-        onSuccess={() => {
-          navigateTo(profile.isOnboardingCompleted ? 'home' : 'profile_setup');
         }}
       />
     );
@@ -283,8 +371,14 @@ export const AppRouter: React.FC = () => {
       <ProfileSetupScreen
         initialProfile={profile}
         onNext={(updated) => {
-          updatePrimaryProfile(updated);
-          navigateTo('profile_confirm');
+          const finalProfile = {
+            ...updated,
+            profileCompleted: true,
+            isProfileCompleted: true,
+            isOnboardingCompleted: true
+          };
+          updatePrimaryProfile(finalProfile);
+          navigateTo('home');
         }}
       />
     );
@@ -294,7 +388,16 @@ export const AppRouter: React.FC = () => {
       <ProfileConfirmScreen
         profile={profile}
         onEdit={() => navigateTo('profile_setup')}
-        onConfirm={() => navigateTo('home')}
+        onConfirm={() => {
+          const finalProfile = {
+            ...profile,
+            profileCompleted: true,
+            isProfileCompleted: true,
+            isOnboardingCompleted: true
+          };
+          updatePrimaryProfile(finalProfile);
+          navigateTo('home');
+        }}
       />
     );
   }
@@ -396,6 +499,7 @@ export const AppRouter: React.FC = () => {
             onLogout={handleLogout}
             onUpdateFamilyMember={updateFamilyMember}
             onRemoveFamilyMember={removeFamilyMember}
+            onUpdateProfile={updatePrimaryProfile}
           />
         );
       case 'settings':
@@ -425,7 +529,7 @@ export const AppRouter: React.FC = () => {
       currentRoute={currentRoute}
       onNavigate={navigateTo}
       onOpenEmergencyModal={() => setIsEmergencyModalOpen(true)}
-      showBottomNav={!['splash', 'language', 'onboarding', 'auth', 'profile_setup', 'profile_confirm', 'sos'].includes(currentRoute)}
+      showBottomNav={!['splash', 'ai_intro', 'language', 'onboarding', 'auth', 'profile_setup', 'profile_confirm', 'sos'].includes(currentRoute)}
       activePatientName={activePatientName}
       userName={user?.displayName || profile.fullName}
     >

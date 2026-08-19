@@ -38,8 +38,13 @@ backend/mongo_search.txt
 *.sln
 *.sw?
 
-# Environment Files
+# Environment & Secret Files
 .env
 .env.local
 .env.*.local
 backend/.env
+backend/secrets/
+secrets/
+*.pem
+*-service-account*.json
+

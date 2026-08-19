@@ -37,8 +37,15 @@ export interface FamilyMember {
 
 export interface UserProfile {
   id: string;
+  uid?: string;
   userId?: string;
+  email?: string;
+  displayName?: string;
   fullName: string;
+  photoURL?: string;
+  profileImage?: string;
+  language?: string;
+  preferredLanguage?: string;
   dob: string; // YYYY-MM-DD
   age: number;
   gender: GenderOption;
@@ -55,5 +62,12 @@ export interface UserProfile {
   medicalConditions?: string;
   currentMedications?: string;
   familyMembers: FamilyMember[];
+  profileCompleted?: boolean;
+  isProfileCompleted?: boolean;
   isOnboardingCompleted?: boolean;
+  healthProfile?: Record<string, any>;
+  chatHistory?: any[];
+  createdAt?: string;
+  updatedAt?: string;
+  lastLogin?: string;
 }

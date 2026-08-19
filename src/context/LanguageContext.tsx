@@ -3,6 +3,7 @@ import { localStorageService } from '../services/localStorageService';
 import { saveUserProfileBackend } from '../services/api';
 import { TRANSLATIONS, TranslationDict } from '../data/translations';
 import { SCHEDULED_INDIAN_LANGUAGES, IndianLanguage } from '../data/indianLanguages';
+import { useAuth } from './AuthContext';
 
 interface LanguageContextType {
   lang: 'en' | 'te';
@@ -15,9 +16,18 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [selectedLanguageCode, setSelectedLanguageCode] = useState<string>(() =>
-    localStorageService.getPreferredLanguage()
-  );
+  const { user, updateUserLanguage } = useAuth();
+  const [selectedLanguageCode, setSelectedLanguageCode] = useState<string>(() => {
+    return user?.preferredLanguage || user?.language || localStorageService.getPreferredLanguage();
+  });
+
+  useEffect(() => {
+    const userLang = user?.preferredLanguage || user?.language;
+    if (userLang && userLang !== selectedLanguageCode) {
+      setSelectedLanguageCode(userLang);
+      localStorageService.savePreferredLanguage(userLang);
+    }
+  }, [user?.preferredLanguage, user?.language]);
 
   useEffect(() => {
     localStorageService.savePreferredLanguage(selectedLanguageCode);
@@ -26,11 +36,16 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const switchLanguage = (newLang: string) => {
     setSelectedLanguageCode(newLang);
     localStorageService.savePreferredLanguage(newLang);
-    saveUserProfileBackend({ preferredLanguage: newLang }).catch(() => {});
+    localStorage.setItem('gramcare_language_selected', 'true');
+    if (user) {
+      updateUserLanguage(newLang).catch(() => {});
+    } else {
+      saveUserProfileBackend({ preferredLanguage: newLang }).catch(() => {});
+    }
   };
 
   const lang: 'en' | 'te' = selectedLanguageCode === 'te' ? 'te' : 'en';
-  const t: TranslationDict = TRANSLATIONS[lang] || TRANSLATIONS.en;
+  const t: TranslationDict = (TRANSLATIONS as Record<string, TranslationDict>)[selectedLanguageCode] || TRANSLATIONS[lang] || TRANSLATIONS.en;
 
   const selectedLanguageMeta =
     SCHEDULED_INDIAN_LANGUAGES.find(l => l.code === selectedLanguageCode) ||

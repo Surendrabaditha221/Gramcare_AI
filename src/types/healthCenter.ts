@@ -1,20 +1,21 @@
-export type CenterType = 'phc' | 'chc' | 'subcenter' | 'asha' | 'district_hospital';
+export type CenterType = 'phc' | 'chc' | 'subcenter' | 'hospital' | 'district_hospital' | 'clinic' | 'pharmacy' | 'diagnostic' | 'emergency';
 
 export interface HealthcareCenter {
   id: string;
   name: string;
-  hindiName: string;
+  hindiName?: string;
   type: CenterType;
   distanceKm: number;
   villageOrTaluka: string;
   district: string;
-  phone: string;
+  phone?: string;
   emergency24x7: boolean;
   servicesAvailable: string[];
   ashaWorkerName?: string;
   isOpenNow: boolean;
   latitude?: number;
   longitude?: number;
+  openingHours?: string;
 }
 
 export interface EmergencyContact {

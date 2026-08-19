@@ -1,217 +1,323 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
+import { auth, googleProvider, isFirebaseConfigured } from '../services/firebase';
 import {
-  User as FirebaseUser,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-  AuthProvider as FirebaseAuthProvider
-} from 'firebase/auth';
-import {
-  auth,
-  googleProvider,
-  facebookProvider,
-  appleProvider,
-  isFirebaseConfigured
-} from '../services/firebase';
+  authLogin,
+  authRegister,
+  authGoogle,
+  authGetMe,
+  authSetLanguage
+} from '../services/api';
 
 export interface AppUser {
-  uid: string;
+  id: string;
+  uid?: string;
+  userId?: string;
   email: string | null;
-  displayName: string | null;
-  photoURL: string | null;
-  providerId?: string;
+  fullName: string | null;
+  displayName?: string | null;
+  profileImage?: string | null;
+  photoURL?: string | null;
+  authProvider?: string;
+  language?: string;
+  preferredLanguage?: string;
+  profileCompleted?: boolean;
+  isProfileCompleted?: boolean;
+  isOnboardingCompleted?: boolean;
+  healthProfile?: Record<string, any>;
+  chatHistory?: any[];
+  createdAt?: string;
+  updatedAt?: string;
+  lastLogin?: string;
 }
 
 interface AuthContextType {
   user: AppUser | null;
+  accessToken: string | null;
   loading: boolean;
   error: string | null;
-  loginWithPhone: (phoneNumber: string) => Promise<AppUser | null>;
-  loginWithGoogle: () => Promise<AppUser | null>;
+  isReturningUser: boolean;
+  loginWithEmail: (email: string, password: string) => Promise<AppUser | null>;
+  registerWithEmail: (email: string, password: string, fullName?: string, preferredLanguage?: string) => Promise<AppUser | null>;
+  loginWithGoogle: (idToken?: string, email?: string, fullName?: string, profileImage?: string) => Promise<AppUser | null>;
   loginWithFacebook: () => Promise<AppUser | null>;
   loginWithApple: () => Promise<AppUser | null>;
+  loginWithPhone: (phoneNumber: string) => Promise<AppUser | null>;
   logout: () => Promise<void>;
+  updateUserLanguage: (language: string) => Promise<void>;
+  updateUserSession: (updatedUser: Partial<AppUser>) => void;
   clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const formatAuthError = (err: any, providerName: string): string => {
-  console.error(`[GramCare AI Auth Error] ${providerName} Sign-In Failed:`, err);
-
-  const code = err?.code || '';
-  if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-    return 'Sign-in was cancelled.';
-  }
-  if (code === 'auth/popup-blocked') {
-    return 'Pop-up blocked by browser. Please allow pop-ups for this site and try again.';
-  }
-  if (code === 'auth/account-exists-with-different-credential') {
-    return 'This email is already associated with another sign-in method.';
-  }
-  if (code === 'auth/network-request-failed') {
-    return 'Unable to sign in. Please check your internet connection and try again.';
-  }
-  if (code === 'auth/operation-not-allowed' || code === 'auth/configuration-not-found') {
-    if (providerName === 'Facebook') {
-      return 'Facebook provider requires Firebase/Facebook Developer configuration.';
-    }
-    if (providerName === 'Apple') {
-      return 'Apple provider requires Firebase/Apple Developer configuration.';
-    }
-    return `${providerName} provider is not enabled in Firebase Console.`;
-  }
-  if (code === 'auth/unauthorized-domain') {
-    return `This domain is not authorized for ${providerName} Sign-In in Firebase Console.`;
-  }
-
-  return err?.message || `${providerName} Sign-In failed. Please try again.`;
-};
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AppUser | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    try {
-      const savedSession = localStorage.getItem('gramcare_auth_session');
-      if (savedSession) {
-        setUser(JSON.parse(savedSession));
-      }
-    } catch {}
-
-    if (!isFirebaseConfigured()) {
-      setLoading(false);
-      return;
-    }
-
-    const unsubscribe = onAuthStateChanged(
-      auth,
-      (fbUser: FirebaseUser | null) => {
-        if (fbUser) {
-          const appUser: AppUser = {
-            uid: fbUser.uid,
-            email: fbUser.email,
-            displayName: fbUser.displayName,
-            photoURL: fbUser.photoURL,
-            providerId: fbUser.providerData?.[0]?.providerId
-          };
-          setUser(appUser);
-          localStorage.setItem('gramcare_auth_session', JSON.stringify(appUser));
-        } else {
-          setUser(null);
-          localStorage.removeItem('gramcare_auth_session');
-        }
-        setLoading(false);
-      },
-      (err) => {
-        console.error('Firebase AuthStateChanged error:', err);
-        setError(err.message);
-        setLoading(false);
-      }
+  const saveAuthSession = (token: string, refToken: string | null, userData: AppUser) => {
+    const isCompleted = Boolean(
+      localStorage.getItem('gramcare_onboarding_completed') === 'true' ||
+      userData.profileCompleted ||
+      userData.isProfileCompleted ||
+      userData.isOnboardingCompleted
     );
+    const enrichedUser: AppUser = {
+      ...userData,
+      profileCompleted: isCompleted,
+      isProfileCompleted: isCompleted,
+      isOnboardingCompleted: isCompleted,
+    };
+    if (isCompleted) {
+      localStorage.setItem('gramcare_onboarding_completed', 'true');
+    }
+    setAccessToken(token);
+    setUser(enrichedUser);
+    localStorage.setItem('gramcare_access_token', token);
+    if (refToken) localStorage.setItem('gramcare_refresh_token', refToken);
+    localStorage.setItem('gramcare_auth_session', JSON.stringify(enrichedUser));
+  };
 
-    return () => unsubscribe();
+  const clearAuthSession = () => {
+    setAccessToken(null);
+    setUser(null);
+    localStorage.removeItem('gramcare_access_token');
+    localStorage.removeItem('gramcare_refresh_token');
+    localStorage.removeItem('gramcare_auth_session');
+    localStorage.removeItem('gramcare_onboarding_completed');
+  };
+
+  useEffect(() => {
+    const initSession = async () => {
+      const storedToken = localStorage.getItem('gramcare_access_token');
+      const isOnboardingDone = localStorage.getItem('gramcare_onboarding_completed') === 'true';
+
+      if (storedToken) {
+        setAccessToken(storedToken);
+        try {
+          const backendUser = await authGetMe(storedToken);
+          if (backendUser && (backendUser.id || backendUser.uid)) {
+            const enriched = {
+              ...backendUser,
+              profileCompleted: backendUser.profileCompleted || isOnboardingDone,
+              isProfileCompleted: backendUser.isProfileCompleted || isOnboardingDone,
+              isOnboardingCompleted: backendUser.isOnboardingCompleted || isOnboardingDone,
+            };
+            setUser(enriched);
+            localStorage.setItem('gramcare_auth_session', JSON.stringify(enriched));
+          } else {
+            clearAuthSession();
+          }
+        } catch {
+          // Token invalid, expired, or backend rejected
+          clearAuthSession();
+        }
+      } else {
+        clearAuthSession();
+      }
+      setLoading(false);
+    };
+
+    initSession();
   }, []);
 
-  const loginWithPhone = async (phoneNumber: string): Promise<AppUser | null> => {
+  const loginWithEmail = async (email: string, password: string): Promise<AppUser | null> => {
     setError(null);
     setLoading(true);
     try {
-      const cleanPhone = phoneNumber.replace(/\D/g, '');
-      const appUser: AppUser = {
-        uid: `phone_${cleanPhone}`,
-        email: null,
-        displayName: null,
-        photoURL: null,
-        providerId: 'phone'
-      };
-      setUser(appUser);
-      localStorage.setItem('gramcare_auth_session', JSON.stringify(appUser));
-      return appUser;
+      const res = await authLogin(email, password);
+      if (res && res.access_token && res.user) {
+        saveAuthSession(res.access_token, res.refresh_token || null, res.user);
+        return res.user;
+      }
+      setError('Invalid email or password');
+      return null;
     } catch (err: any) {
-      setError(err?.message || 'Phone authentication failed.');
+      setError(err?.message || 'Login failed');
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const loginWithProvider = async (
-    provider: FirebaseAuthProvider,
-    providerName: string
+  const registerWithEmail = async (
+    email: string,
+    password: string,
+    fullName: string = '',
+    preferredLanguage: string = 'en'
   ): Promise<AppUser | null> => {
     setError(null);
-
-    if (!isFirebaseConfigured()) {
-      const configErrMsg =
-        'Firebase configuration is missing! Please populate VITE_FIREBASE_API_KEY and VITE_FIREBASE_PROJECT_ID in your .env file.';
-      console.error('[GramCare AI Auth]', configErrMsg);
-      setError(configErrMsg);
-      return null;
-    }
-
     setLoading(true);
     try {
-      const result = await signInWithPopup(auth, provider);
-      const fbUser = result.user;
-      const appUser: AppUser = {
-        uid: fbUser.uid,
-        email: fbUser.email,
-        displayName: fbUser.displayName,
-        photoURL: fbUser.photoURL,
-        providerId: fbUser.providerData?.[0]?.providerId
-      };
-
-      setUser(appUser);
-      localStorage.setItem('gramcare_auth_session', JSON.stringify(appUser));
-      console.log(`[GramCare AI Auth] Successfully authenticated ${providerName} user:`, appUser);
-      return appUser;
+      const res = await authRegister(email, password, fullName, preferredLanguage);
+      if (res && res.access_token && res.user) {
+        saveAuthSession(res.access_token, res.refresh_token || null, res.user);
+        return res.user;
+      }
+      setError('Registration failed');
+      return null;
     } catch (err: any) {
-      const userFriendlyMsg = formatAuthError(err, providerName);
-      setError(userFriendlyMsg);
+      setError(err?.message || 'Registration failed');
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const loginWithGoogle = () => loginWithProvider(googleProvider, 'Google');
-  const loginWithFacebook = () => loginWithProvider(facebookProvider, 'Facebook');
-  const loginWithApple = () => loginWithProvider(appleProvider, 'Apple');
+  const loginWithGoogle = async (
+    idToken?: string,
+    email?: string,
+    fullName?: string,
+    profileImage?: string
+  ): Promise<AppUser | null> => {
+    setError(null);
+    setLoading(true);
+    try {
+      let finalIdToken = idToken;
+      let finalEmail = email;
+      let finalFullName = fullName;
+      let finalProfileImage = profileImage;
+
+      // Always trigger official Firebase Google Sign-In popup if no token supplied
+      if (!finalIdToken) {
+        if (!isFirebaseConfigured() || !auth) {
+          throw new Error('Firebase Authentication is not configured. Please check your VITE_FIREBASE_* environment variables.');
+        }
+
+        // Always show Google Account Picker screen
+        googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+        const result = await signInWithPopup(auth, googleProvider);
+        const googleUser = result.user;
+        finalIdToken = await googleUser.getIdToken();
+        finalEmail = googleUser.email || undefined;
+
+        if (import.meta.env.DEV) {
+          console.log('[GramCare AI Google Auth] Authenticated UID:', googleUser.uid);
+          console.log('[GramCare AI Google Auth] Email:', googleUser.email);
+          console.log('[GramCare AI Google Auth] Display Name:', googleUser.displayName);
+        }
+
+        let extractedName = googleUser.displayName || undefined;
+        if (!extractedName && (result as any)._tokenResponse?.firstName) {
+          const firstName = (result as any)._tokenResponse.firstName || '';
+          const lastName = (result as any)._tokenResponse.lastName || '';
+          extractedName = `${firstName} ${lastName}`.trim();
+        }
+        if (!extractedName && finalEmail) {
+          extractedName = finalEmail.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        }
+        finalFullName = extractedName || undefined;
+        finalProfileImage = googleUser.photoURL || undefined;
+      }
+
+      // Verify ID token & authenticate/register user in MongoDB backend
+      const res = await authGoogle(
+        finalIdToken,
+        finalEmail || undefined,
+        finalFullName || undefined,
+        finalProfileImage
+      );
+
+      if (res && res.access_token && res.user) {
+        saveAuthSession(res.access_token, res.refresh_token || null, res.user);
+        return res.user;
+      }
+
+      // No fake fallback user! If backend is offline/unreachable, fail cleanly.
+      clearAuthSession();
+      setError('Unable to connect to GramCare server. Please try again.');
+      return null;
+    } catch (err: any) {
+      console.error('[GramCare AI] Google Auth Error:', err);
+      clearAuthSession();
+      let errorMessage = err?.message || 'Google authentication failed';
+      if (err?.code === 'auth/popup-closed-by-user') {
+        errorMessage = 'Google sign-in popup was closed before completing.';
+      } else if (err?.code === 'auth/cancelled-popup-request') {
+        errorMessage = 'Google sign-in request was cancelled.';
+      } else if (err?.code === 'auth/popup-blocked') {
+        errorMessage = 'Google sign-in popup was blocked by browser. Please allow popups for this site.';
+      }
+      setError(errorMessage);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loginWithFacebook = async (): Promise<AppUser | null> => {
+    setError('Facebook sign-in is coming soon. Please sign in with Google.');
+    return null;
+  };
+
+  const loginWithApple = async (): Promise<AppUser | null> => {
+    setError('Apple sign-in is coming soon. Please sign in with Google.');
+    return null;
+  };
+
+  const loginWithPhone = async (_phoneNumber: string): Promise<AppUser | null> => {
+    setError('Phone sign-in is coming soon. Please sign in with Google.');
+    return null;
+  };
+
+  const updateUserLanguage = async (language: string): Promise<void> => {
+    if (!user) return;
+    const updatedUser = {
+      ...user,
+      language,
+      preferredLanguage: language
+    };
+    setUser(updatedUser);
+    localStorage.setItem('gramcare_auth_session', JSON.stringify(updatedUser));
+    await authSetLanguage(language, accessToken || undefined);
+  };
+
+  const updateUserSession = (updatedFields: Partial<AppUser>) => {
+    if (!user) return;
+    const updatedUser = { ...user, ...updatedFields };
+    setUser(updatedUser);
+    localStorage.setItem('gramcare_auth_session', JSON.stringify(updatedUser));
+  };
 
   const logout = async (): Promise<void> => {
     setError(null);
     setLoading(true);
     try {
-      if (isFirebaseConfigured()) {
+      if (auth) {
         await firebaseSignOut(auth);
       }
-      setUser(null);
-      localStorage.removeItem('gramcare_auth_session');
-      console.log('[GramCare AI Auth] User logged out successfully.');
-    } catch (err: any) {
-      console.error('[GramCare AI Auth Error] Logout failed:', err);
-      setError(err.message || 'Logout failed.');
+    } catch (err) {
+      console.warn('[GramCare AI] Firebase signout error:', err);
     } finally {
+      clearAuthSession();
       setLoading(false);
     }
   };
 
   const clearError = () => setError(null);
 
+  const isReturningUser = Boolean(user && (user.profileCompleted || user.isProfileCompleted || user.isOnboardingCompleted));
+
   return (
     <AuthContext.Provider
       value={{
         user,
+        accessToken,
         loading,
         error,
-        loginWithPhone,
+        isReturningUser,
+        loginWithEmail,
+        registerWithEmail,
         loginWithGoogle,
         loginWithFacebook,
         loginWithApple,
+        loginWithPhone,
         logout,
+        updateUserLanguage,
+        updateUserSession,
         clearError
       }}
     >

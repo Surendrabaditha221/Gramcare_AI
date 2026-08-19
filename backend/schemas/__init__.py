@@ -17,4 +17,5 @@ from schemas.patient import PatientCreate, PatientResponse
 from schemas.record import HealthRecordCreate, HealthRecordResponse
 from schemas.facility import HealthcareFacilityResponse
 from schemas.alert import AlertCreate, AlertResponse
+from schemas.appointment import AppointmentCreate, AppointmentResponse
 from schemas.sync import SyncRequest, SyncResponse

@@ -528,3 +528,159 @@ h3 { font-size: var(--font-size-lg); }
   color: var(--color-success);
   border: 1px solid #86efac;
 }
+
+/* --- GramCare AI Premium Full-Screen Animated Introduction --- */
+.ai-intro-container {
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  background: linear-gradient(135deg, #0f766e 0%, #0d9488 45%, #115e59 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ai-intro-container.ai-intro-exiting {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ai-intro-glow-1 {
+  position: absolute;
+  top: 10%;
+  left: 15%;
+  width: clamp(220px, 40vw, 360px);
+  height: clamp(220px, 40vw, 360px);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(153, 246, 228, 0.25) 0%, rgba(15, 118, 110, 0) 70%);
+  filter: blur(40px);
+  animation: aiGlowPulse 4s ease-in-out infinite alternate;
+}
+
+.ai-intro-glow-2 {
+  position: absolute;
+  bottom: 12%;
+  right: 15%;
+  width: clamp(240px, 45vw, 400px);
+  height: clamp(240px, 45vw, 400px);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(94, 234, 212, 0.2) 0%, rgba(17, 94, 89, 0) 70%);
+  filter: blur(50px);
+  animation: aiGlowPulse 4s ease-in-out infinite alternate-reverse;
+}
+
+.ai-intro-sparkle {
+  position: absolute;
+  opacity: 0.8;
+  animation: aiSparkleFloat 3s ease-in-out infinite alternate;
+}
+.ai-sparkle-tl { top: 18%; left: 18%; animation-delay: 0s; }
+.ai-sparkle-tr { top: 22%; right: 20%; animation-delay: 0.5s; }
+.ai-sparkle-bl { bottom: 25%; left: 22%; animation-delay: 1s; }
+.ai-sparkle-br { bottom: 20%; right: 22%; animation-delay: 1.5s; }
+
+.ai-intro-logo-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 36px;
+}
+
+.ai-ripple-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid rgba(153, 246, 228, 0.4);
+  animation: aiRippleExpand 2.2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+.ai-ripple-1 { width: 140px; height: 140px; animation-delay: 0s; }
+.ai-ripple-2 { width: 180px; height: 180px; animation-delay: 0.6s; }
+.ai-ripple-3 { width: 220px; height: 220px; animation-delay: 1.2s; }
+
+.ai-intro-logo-card {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25), 0 0 24px rgba(153, 246, 228, 0.6);
+  z-index: 2;
+  animation: aiLogoZoom 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.ai-intro-text-wrapper {
+  text-align: center;
+  z-index: 2;
+  animation: aiTextFadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards;
+  opacity: 0;
+  transform: translateY(16px);
+}
+
+.ai-intro-title {
+  font-size: clamp(32px, 7vw, 44px);
+  font-weight: 900;
+  color: #ffffff;
+  letter-spacing: -0.5px;
+  margin-bottom: 8px;
+  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.ai-intro-subtitle {
+  font-size: clamp(15px, 3.8vw, 19px);
+  font-weight: 600;
+  color: #ccfbf1;
+  max-width: 360px;
+  margin: 0 auto;
+  line-height: 1.4;
+  opacity: 0.95;
+}
+
+.ai-intro-footer {
+  position: absolute;
+  bottom: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #99f6e4;
+  opacity: 0.85;
+}
+
+@keyframes aiLogoZoom {
+  0% { transform: scale(0.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes aiRippleExpand {
+  0% { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+@keyframes aiTextFadeUp {
+  0% { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes aiGlowPulse {
+  0% { transform: scale(0.9); opacity: 0.6; }
+  100% { transform: scale(1.1); opacity: 1; }
+}
+
+@keyframes aiSparkleFloat {
+  0% { transform: translateY(0) scale(0.9); }
+  100% { transform: translateY(-8px) scale(1.1); }
+}
+
+@keyframes slideFadeIn {
+  0% { opacity: 0; transform: translateX(16px); }
+  100% { opacity: 1; transform: translateX(0); }
+}

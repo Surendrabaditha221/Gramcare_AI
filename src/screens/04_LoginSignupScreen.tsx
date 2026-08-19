@@ -277,62 +277,44 @@ export const LoginSignupScreen: React.FC<LoginSignupScreenProps> = ({ onSuccess 
             )}
           </button>
 
-          {/* Facebook Button */}
+          {/* Facebook Button (Coming Soon) */}
           <button
             type="button"
             aria-label="Continue with Facebook"
             onClick={() => handleProviderLogin('facebook')}
-            disabled={loading || !isAuthAllowed}
+            disabled={loading}
             className="btn"
             style={{
               ...buttonStyle,
-              backgroundColor: isAuthAllowed ? '#ffffff' : '#f1f5f9',
-              border: `1.5px solid ${isAuthAllowed ? '#cbd5e1' : '#e2e8f0'}`,
-              color: isAuthAllowed ? '#1e293b' : '#94a3b8',
-              cursor: isAuthAllowed && !loading ? 'pointer' : 'not-allowed',
-              opacity: loading || !isAuthAllowed ? 0.7 : 1
+              backgroundColor: '#f8fafc',
+              border: '1.5px solid #e2e8f0',
+              color: '#64748b',
+              cursor: 'pointer',
+              opacity: 0.85
             }}
           >
-            {loading && activeProvider === 'facebook' ? (
-              <>
-                <Loader2 size={20} color="#1877F2" style={{ animation: 'spin 1s linear infinite' }} />
-                <span>Connecting to Facebook...</span>
-              </>
-            ) : (
-              <>
-                <FacebookIcon />
-                <span>{t.continueFacebook || 'Continue with Facebook'}</span>
-              </>
-            )}
+            <FacebookIcon />
+            <span>Continue with Facebook (Coming Soon)</span>
           </button>
 
-          {/* Apple Button */}
+          {/* Apple Button (Coming Soon) */}
           <button
             type="button"
             aria-label="Continue with Apple"
             onClick={() => handleProviderLogin('apple')}
-            disabled={loading || !isAuthAllowed}
+            disabled={loading}
             className="btn"
             style={{
               ...buttonStyle,
-              backgroundColor: isAuthAllowed ? '#ffffff' : '#f1f5f9',
-              border: `1.5px solid ${isAuthAllowed ? '#cbd5e1' : '#e2e8f0'}`,
-              color: isAuthAllowed ? '#0f172a' : '#94a3b8',
-              cursor: isAuthAllowed && !loading ? 'pointer' : 'not-allowed',
-              opacity: loading || !isAuthAllowed ? 0.7 : 1
+              backgroundColor: '#f8fafc',
+              border: '1.5px solid #e2e8f0',
+              color: '#64748b',
+              cursor: 'pointer',
+              opacity: 0.85
             }}
           >
-            {loading && activeProvider === 'apple' ? (
-              <>
-                <Loader2 size={20} color="#0f172a" style={{ animation: 'spin 1s linear infinite' }} />
-                <span>Connecting to Apple...</span>
-              </>
-            ) : (
-              <>
-                <AppleIcon />
-                <span>{t.continueApple || 'Continue with Apple'}</span>
-              </>
-            )}
+            <AppleIcon />
+            <span>Continue with Apple (Coming Soon)</span>
           </button>
         </div>
       </div>

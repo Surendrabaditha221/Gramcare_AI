@@ -77,14 +77,8 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
       age: derivedAge,
       gender: gender as GenderOption,
       maritalStatus: maritalStatus as MaritalStatusOption,
-      bloodGroup: bloodGroup.trim() || undefined,
-      phone: phone.trim() || undefined,
-      emergencyContactPhone: emergencyContactPhone.trim() || initialProfile.emergencyContactPhone || '',
-      knownAllergies: knownAllergies.trim() || undefined,
-      medicalConditions: medicalConditions.trim() || undefined,
-      currentMedications: currentMedications.trim() || undefined,
-      heightCm,
-      weightKg,
+      profileCompleted: true,
+      isProfileCompleted: true,
       isOnboardingCompleted: true
     };
 
@@ -96,15 +90,15 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
       <div style={{ marginBottom: '20px' }}>
         <div style={{ marginBottom: '8px' }}>
           <span style={{ backgroundColor: '#e0f2fe', color: '#0369a1', padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 700 }}>
-            Step 1 of 2 • Personal Information
+            Personal Information
           </span>
         </div>
         <h2 style={{ fontSize: '24px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
           <User size={26} />
-          Let's create your health profile
+          Create Your Health Profile
         </h2>
         <p style={{ fontSize: '14px', color: '#64748b', margin: '4px 0 0' }}>
-          This helps GramCare provide more relevant health guidance.
+          Essential details for personalized healthcare guidance.
         </p>
       </div>
 
@@ -211,82 +205,6 @@ export const ProfileSetupScreen: React.FC<ProfileSetupScreenProps> = ({
             <option value="separated">Separated</option>
             <option value="prefer_not_to_say">Prefer not to say</option>
           </select>
-        </div>
-
-        {/* Optional Healthcare Information */}
-        <div className="card" style={{ margin: 0 }}>
-          <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', color: '#0f766e' }}>
-            Healthcare & Emergency Details (Optional)
-          </h4>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '4px' }}>
-                  Blood Group
-                </label>
-                <input
-                  type="text"
-                  value={bloodGroup}
-                  onChange={(e) => setBloodGroup(e.target.value)}
-                  placeholder="e.g. O+"
-                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '4px' }}>
-                  Emergency Contact Phone
-                </label>
-                <input
-                  type="text"
-                  value={emergencyContactPhone}
-                  onChange={(e) => setEmergencyContactPhone(e.target.value)}
-                  placeholder="+91 98765 00000"
-                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '4px' }}>
-                Known Allergies
-              </label>
-              <input
-                type="text"
-                value={knownAllergies}
-                onChange={(e) => setKnownAllergies(e.target.value)}
-                placeholder="e.g. Dust allergy, Penicillin"
-                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '4px' }}>
-                Existing Medical Conditions
-              </label>
-              <input
-                type="text"
-                value={medicalConditions}
-                onChange={(e) => setMedicalConditions(e.target.value)}
-                placeholder="e.g. Asthma, Hypertension, Diabetes"
-                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: '12px', fontWeight: 600, color: '#64748b', display: 'block', marginBottom: '4px' }}>
-                Current Medications
-              </label>
-              <input
-                type="text"
-                value={currentMedications}
-                onChange={(e) => setCurrentMedications(e.target.value)}
-                placeholder="e.g. Paracetamol, Inhaler"
-                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '14px' }}
-              />
-            </div>
-          </div>
         </div>
 
         <PrimaryButton

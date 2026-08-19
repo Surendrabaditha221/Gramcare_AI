@@ -13,6 +13,15 @@ export const MOCK_EMERGENCY_HOTLINES: EmergencyContact[] = [
     isPrimary: true
   },
   {
+    id: '112',
+    title: 'National Emergency Response (All-in-One)',
+    hindiTitle: '112 राष्ट्रीय आपातकालीन नंबर',
+    number: '112',
+    description: 'Unified 24x7 emergency response for Medical, Police, and Fire',
+    hindiDescription: '24x7 एकीकृत राष्ट्रीय आपातकालीन सहायता',
+    isPrimary: true
+  },
+  {
     id: '102',
     title: 'Janani Shishu Suraksha (Maternal)',
     hindiTitle: '102 जननी शिशु सुरक्षा',

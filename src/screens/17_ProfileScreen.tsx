@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { User, Calendar, MapPin, Edit, Users, Shield, Settings, LogOut, Trash2, AlertTriangle } from 'lucide-react';
+import { User, Calendar, MapPin, Edit, Users, Shield, Settings, LogOut, Trash2, AlertTriangle, Stethoscope, PlusCircle } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { UserProfile, FamilyMember } from '../types/user';
 import { EditFamilyMemberModal } from '../components/Patient/EditFamilyMemberModal';
+import { EditMedicalInfoModal } from '../components/Patient/EditMedicalInfoModal';
 import { calculateAgeFromDOB, formatDOBForDisplay } from '../utils/dateUtils';
 
 interface ProfileScreenProps {
@@ -12,6 +13,7 @@ interface ProfileScreenProps {
   onLogout?: () => void;
   onUpdateFamilyMember?: (member: FamilyMember) => void;
   onRemoveFamilyMember?: (id: string) => void;
+  onUpdateProfile?: (updatedProfile: UserProfile) => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -20,12 +22,14 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onNavigateToSettings,
   onLogout,
   onUpdateFamilyMember,
-  onRemoveFamilyMember
+  onRemoveFamilyMember,
+  onUpdateProfile
 }) => {
   const { lang, t } = useLanguage();
   const [editingFamilyMember, setEditingFamilyMember] = useState<FamilyMember | null>(null);
   const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
   const [deletingMemberName, setDeletingMemberName] = useState<string>('');
+  const [isEditingMedicalInfo, setIsEditingMedicalInfo] = useState<boolean>(false);
 
   const confirmDeleteFamilyMember = (member: FamilyMember) => {
     setDeletingMemberId(member.id);
@@ -74,7 +78,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         </h2>
 
         <p style={{ color: '#ccfbf1', fontSize: '14px', margin: '0 0 16px 0' }}>
-          {profile.village}, {profile.district} • GramCare Health Passport
+          {profile.village ? `${profile.village}, ${profile.district}` : 'GramCare Health Passport'}
         </p>
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -144,11 +148,20 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
       {/* Grid Layout */}
       <div className="grid-responsive-2">
-        {/* Primary User Details */}
+        {/* Card 1: Personal Details */}
         <div className="card" style={{ margin: 0 }}>
-          <h3 style={{ margin: '0 0 12px 0', fontSize: '17px', color: '#0f766e' }}>
-            Primary Personal & Health Profile
-          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '17px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <User size={20} />
+              Personal Details
+            </h3>
+            <button
+              onClick={onEditProfile}
+              style={{ fontSize: '12px', fontWeight: 700, color: '#0f766e', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+              Edit
+            </button>
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
@@ -175,47 +188,84 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               </strong>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <span style={{ fontSize: '14px', color: '#64748b' }}>Marital Status:</span>
               <strong style={{ fontSize: '15px', color: '#1e293b', textTransform: 'capitalize' }}>
                 {profile.maritalStatus ? profile.maritalStatus.replace('_', ' ') : 'N/A'}
               </strong>
             </div>
+          </div>
+        </div>
 
+        {/* Card 2: Dedicated Medical Information Section */}
+        <div className="card" style={{ margin: 0, border: '1.5px solid #ccfbf1' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+            <h3 style={{ margin: 0, fontSize: '17px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Stethoscope size={20} />
+              Medical Information
+            </h3>
+
+            <button
+              type="button"
+              onClick={() => setIsEditingMedicalInfo(true)}
+              style={{
+                backgroundColor: '#f0fdf4',
+                color: '#0f766e',
+                border: '1px solid #bbf7d0',
+                borderRadius: '10px',
+                padding: '4px 10px',
+                fontSize: '12px',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              <Edit size={13} />
+              Edit Medical Info
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
               <span style={{ fontSize: '14px', color: '#64748b' }}>Blood Group:</span>
-              <strong style={{ fontSize: '15px', color: '#b91c1c' }}>{profile.bloodGroup || 'N/A'}</strong>
+              <strong style={{ fontSize: '15px', color: profile.bloodGroup ? '#b91c1c' : '#94a3b8' }}>
+                {profile.bloodGroup || 'Not specified'}
+              </strong>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
               <span style={{ fontSize: '14px', color: '#64748b' }}>Emergency Contact:</span>
-              <strong style={{ fontSize: '15px', color: '#1e293b' }}>{profile.emergencyContactPhone || 'N/A'}</strong>
+              <strong style={{ fontSize: '15px', color: profile.emergencyContactPhone ? '#1e293b' : '#94a3b8' }}>
+                {profile.emergencyContactPhone || 'Not specified'}
+              </strong>
             </div>
 
-            {profile.knownAllergies && (
-              <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
-                <span style={{ fontSize: '13px', color: '#64748b', display: 'block' }}>Known Allergies:</span>
-                <span style={{ fontSize: '14px', color: '#b91c1c', fontWeight: 600 }}>{profile.knownAllergies}</span>
-              </div>
-            )}
+            <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '2px' }}>Known Allergies:</span>
+              <span style={{ fontSize: '14px', color: profile.knownAllergies ? '#b91c1c' : '#94a3b8', fontWeight: profile.knownAllergies ? 600 : 400 }}>
+                {profile.knownAllergies || 'None reported'}
+              </span>
+            </div>
 
-            {profile.medicalConditions && (
-              <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
-                <span style={{ fontSize: '13px', color: '#64748b', display: 'block' }}>Medical Conditions:</span>
-                <span style={{ fontSize: '14px', color: '#1e293b', fontWeight: 600 }}>{profile.medicalConditions}</span>
-              </div>
-            )}
+            <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '2px' }}>Existing Medical Conditions:</span>
+              <span style={{ fontSize: '14px', color: profile.medicalConditions ? '#1e293b' : '#94a3b8', fontWeight: profile.medicalConditions ? 600 : 400 }}>
+                {profile.medicalConditions || 'None reported'}
+              </span>
+            </div>
 
-            {profile.currentMedications && (
-              <div>
-                <span style={{ fontSize: '13px', color: '#64748b', display: 'block' }}>Current Medications:</span>
-                <span style={{ fontSize: '14px', color: '#0f766e', fontWeight: 600 }}>{profile.currentMedications}</span>
-              </div>
-            )}
+            <div>
+              <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '2px' }}>Current Medications:</span>
+              <span style={{ fontSize: '14px', color: profile.currentMedications ? '#0f766e' : '#94a3b8', fontWeight: profile.currentMedications ? 600 : 400 }}>
+                {profile.currentMedications || 'None reported'}
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Family Profiles Card */}
+        {/* Card 3: Family Profiles */}
         <div className="card" style={{ margin: 0 }}>
           <h3 style={{ margin: '0 0 12px 0', fontSize: '17px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Users size={20} />
@@ -293,6 +343,21 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           )}
         </div>
       </div>
+
+      {/* Edit Medical Info Modal */}
+      {isEditingMedicalInfo && (
+        <EditMedicalInfoModal
+          isOpen={isEditingMedicalInfo}
+          profile={profile}
+          onClose={() => setIsEditingMedicalInfo(false)}
+          onSave={(updated) => {
+            if (onUpdateProfile) {
+              onUpdateProfile(updated);
+            }
+            setIsEditingMedicalInfo(false);
+          }}
+        />
+      )}
 
       {/* Edit Family Member Modal */}
       {editingFamilyMember && (

@@ -1,0 +1,44 @@
+# Local secrets and credentials - MUST NEVER BE INCLUDED IN IMAGES
+secrets/
+backend/secrets/
+**/secrets/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.app.json
+!tsconfig.node.json
+!firebase.json
+!firestore.indexes.json
+
+# Local environment variables
+.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# Version control and IDE files
+.git
+.gitignore
+.agents/
+.gemini/
+.idea/
+.vscode/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+backend/.venv/
+backend/venv/
+*.log
+
+# Node & Frontend artifacts
+node_modules/
+dist/
+build/
+coverage/
+.npm

@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: gramcare-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    region: singapore
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: ENVIRONMENT
+        value: production
+      - key: FIREBASE_PROJECT_ID
+        value: gramcare-ai-5fffb
+      - key: ALLOWED_ORIGINS
+        value: https://gramcare-ai-5fffb.web.app,https://gramcare-ai-5fffb.firebaseapp.com
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false

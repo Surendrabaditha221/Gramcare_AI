@@ -6,16 +6,22 @@ from typing import Optional
 
 class AlertBase(BaseModel):
     category: str = "health"
+    type: Optional[str] = "health"
     title: str
     teluguTitle: Optional[str] = None
     message: str
     teluguMessage: Optional[str] = None
-    timestamp: str
+    severity: Optional[str] = "info"
+    timestamp: Optional[str] = None
     isRead: bool = False
     actionRoute: Optional[str] = None
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
 
 class AlertCreate(AlertBase):
-    pass
+    userId: Optional[str] = None
 
 class AlertResponse(AlertBase):
     id: str
+    userId: Optional[str] = None
+

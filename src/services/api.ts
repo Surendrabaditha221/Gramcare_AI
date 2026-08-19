@@ -1,7 +1,7 @@
 /**
  * Central API Service for GramCare AI Backend Communication
- * Connects frontend to FastAPI backend endpoints when online,
- * with graceful fallback handling to local storage & mock services when offline.
+ * Connects frontend to FastAPI backend endpoints with JWT Authorization,
+ * persistent MongoDB synchronization, and offline fallback resilience.
  */
 
 import { TriageInput, TriageGuidanceResult } from '../types/triage';
@@ -11,7 +11,18 @@ import { HealthcareCenter } from '../types/healthCenter';
 import { NotificationItem } from '../types/notification';
 import { UserProfile, FamilyMember } from '../types/user';
 
-const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8001';
+function getApiBaseUrl(): string {
+  const envUrl = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+  if (typeof window !== 'undefined' && window.location) {
+    const currentHost = window.location.hostname;
+    if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
+      return envUrl.replace(/localhost|127\.0\.0\.1/g, currentHost);
+    }
+  }
+  return envUrl;
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 export interface HealthResponse {
   status: string;
@@ -19,14 +30,24 @@ export interface HealthResponse {
   version: string;
 }
 
+export function getAuthHeaders(token?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+  const authToken = token || (typeof localStorage !== 'undefined' ? localStorage.getItem('gramcare_access_token') : null);
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+  return headers;
+}
+
 /**
  * Check backend health status (GET /health)
  */
 export async function checkBackendHealth(): Promise<HealthResponse | null> {
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-  if (!isOnline) {
-    return null;
-  }
+  if (!isOnline) return null;
 
   const probeEndpoint = async (endpointUrl: string): Promise<HealthResponse | null> => {
     const controller = new AbortController();
@@ -52,13 +73,110 @@ export async function checkBackendHealth(): Promise<HealthResponse | null> {
   if (!result) {
     result = await probeEndpoint(`${API_BASE_URL}/api/health`);
   }
-
   return result;
 }
 
-/**
- * Submit symptom triage assessment to backend (POST /api/triage)
- */
+// ─────────────────────────────────────────────
+// Authentication APIs
+// ─────────────────────────────────────────────
+
+export async function authLogin(email: string, password: string): Promise<any | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function authRegister(
+  email: string,
+  password: string,
+  fullName: string = 'GramCare User',
+  preferredLanguage: string = 'en'
+): Promise<any | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, fullName, preferredLanguage })
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function authGoogle(
+  idToken: string,
+  email?: string,
+  fullName?: string,
+  profileImage?: string
+): Promise<any | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, email, fullName, profileImage })
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function authGetMe(token?: string): Promise<any | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      method: 'GET',
+      headers: getAuthHeaders(token)
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function authRefreshToken(refreshToken: string): Promise<any | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken })
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function authSetLanguage(language: string, token?: string): Promise<any | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/auth/language`, {
+      method: 'POST',
+      headers: getAuthHeaders(token),
+      body: JSON.stringify({ language })
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────
+// Triage APIs
+// ─────────────────────────────────────────────
+
 export async function evaluateTriageBackend(input: TriageInput, userId?: string): Promise<TriageGuidanceResult | null> {
   try {
     const payload = {
@@ -76,10 +194,7 @@ export async function evaluateTriageBackend(input: TriageInput, userId?: string)
 
     const response = await fetch(`${API_BASE_URL}/api/triage`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
 
@@ -135,8 +250,9 @@ export interface PatientContextPayload {
 export async function sendChatMessageBackendDetailed(
   message: string,
   patientName: string = 'Primary User',
-  language: 'en' | 'te' = 'en',
-  patientContext?: PatientContextPayload
+  language: string = 'en',
+  patientContext?: PatientContextPayload,
+  userId?: string
 ): Promise<ChatResult> {
   const url = `${API_BASE_URL}/api/chat`;
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
@@ -152,14 +268,12 @@ export async function sendChatMessageBackendDetailed(
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         message,
         patient_name: patientName,
         language,
+        user_id: userId || patientContext?.userId,
         patient_context: patientContext
       })
     });
@@ -211,11 +325,12 @@ export interface StreamChatResult {
 export async function streamChatMessageBackend(
   message: string,
   patientName: string = 'Primary User',
-  language: 'en' | 'te' = 'en',
+  language: string = 'en',
   onChunk: (chunk: string) => void,
   signal?: AbortSignal,
   patientContext?: PatientContextPayload,
-  history?: ChatMessage[]
+  history?: ChatMessage[],
+  userId?: string
 ): Promise<StreamChatResult> {
   const url = `${API_BASE_URL}/api/chat/stream`;
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
@@ -236,16 +351,17 @@ export async function streamChatMessageBackend(
       text: h.text
     })) : undefined;
 
+    const headers = getAuthHeaders();
+    headers['Accept'] = 'text/plain, application/json';
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/plain, application/json'
-      },
+      headers,
       body: JSON.stringify({
         message,
         patient_name: patientName,
         language,
+        user_id: userId || patientContext?.userId,
         patient_context: patientContext,
         history: formattedHistory
       }),
@@ -329,10 +445,7 @@ export async function analyzeDocumentBackend(
   try {
     const response = await fetch(`${API_BASE_URL}/api/document/analyze`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         doc_type: docType,
         patient_name: patientName,
@@ -379,7 +492,7 @@ export async function fetchPatientsBackend(userId?: string): Promise<UserProfile
     const params = new URLSearchParams();
     if (userId) params.append('userId', userId);
     const url = `${API_BASE_URL}/api/patients?${params.toString()}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: getAuthHeaders() });
     if (!response.ok) return null;
     return await response.json();
   } catch {
@@ -395,7 +508,7 @@ export async function savePatientBackend(patient: Partial<UserProfile | FamilyMe
     const payload = { ...patient, userId: userId || (patient as any).userId };
     const response = await fetch(`${API_BASE_URL}/api/patients`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
     if (!response.ok) return null;
@@ -414,7 +527,7 @@ export async function fetchRecordsBackend(patientId?: string, userId?: string): 
     if (patientId) params.append('patient_id', patientId);
     if (userId) params.append('userId', userId);
     const url = `${API_BASE_URL}/api/records?${params.toString()}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: getAuthHeaders() });
     if (!response.ok) return null;
     return await response.json();
   } catch {
@@ -430,7 +543,7 @@ export async function saveRecordBackend(record: Partial<HealthRecord>, userId?: 
     const payload = { ...record, userId: userId || (record as any).userId };
     const response = await fetch(`${API_BASE_URL}/api/records`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(payload)
     });
     if (!response.ok) return null;
@@ -447,7 +560,7 @@ export async function fetchAlertsBackend(userId?: string): Promise<NotificationI
   try {
     const params = new URLSearchParams();
     if (userId) params.append('userId', userId);
-    const response = await fetch(`${API_BASE_URL}/api/alerts?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/api/alerts?${params.toString()}`, { headers: getAuthHeaders() });
     if (!response.ok) return null;
     return await response.json();
   } catch {
@@ -469,7 +582,7 @@ export async function syncOfflineDataBackend(payload: {
     const body = { ...payload, userId: userId || payload.userId };
     const response = await fetch(`${API_BASE_URL}/api/sync`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(body)
     });
     if (!response.ok) return null;
@@ -488,7 +601,7 @@ export async function fetchUserProfileBackend(email?: string, userId?: string): 
     if (email) params.append('email', email);
     if (userId) params.append('userId', userId);
 
-    const response = await fetch(`${API_BASE_URL}/api/users/profile?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/api/users/profile?${params.toString()}`, { headers: getAuthHeaders() });
     if (!response.ok) return null;
     const res = await response.json();
     return res.found ? res.profile : null;
@@ -504,7 +617,7 @@ export async function saveUserProfileBackend(profileData: any): Promise<any | nu
   try {
     const response = await fetch(`${API_BASE_URL}/api/users/profile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(profileData)
     });
     if (!response.ok) return null;
@@ -512,6 +625,67 @@ export async function saveUserProfileBackend(profileData: any): Promise<any | nu
     return res.profile;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Fetch User Settings (GET /api/settings)
+ */
+export async function fetchUserSettingsBackend(): Promise<any | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/settings`, { headers: getAuthHeaders() });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Save User Settings (POST /api/settings)
+ */
+export async function saveUserSettingsBackend(settingsData: any): Promise<any | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/settings`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(settingsData)
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Change Password (POST /api/settings/change-password)
+ */
+export async function changePasswordBackend(oldPassword: string, newPassword: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/settings/change-password`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ oldPassword, newPassword })
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Delete User Account (DELETE /api/users/account)
+ */
+export async function deleteAccountBackend(): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/users/account`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -524,7 +698,7 @@ export async function fetchChatHistoryBackend(userId?: string, patientName?: str
     if (userId) params.append('userId', userId);
     if (patientName) params.append('patientName', patientName);
 
-    const response = await fetch(`${API_BASE_URL}/api/chat/history?${params.toString()}`);
+    const response = await fetch(`${API_BASE_URL}/api/chat/history?${params.toString()}`, { headers: getAuthHeaders() });
     if (!response.ok) return null;
     const res = await response.json();
     return res.history || [];
@@ -539,7 +713,8 @@ export async function fetchChatHistoryBackend(userId?: string, patientName?: str
 export async function deleteChatHistoryBackend(messageId: string): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/chat/history/${messageId}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: getAuthHeaders()
     });
     if (!response.ok) return false;
     const res = await response.json();

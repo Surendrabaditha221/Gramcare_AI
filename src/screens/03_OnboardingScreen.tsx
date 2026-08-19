@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bot, Stethoscope, ShieldAlert, ArrowRight } from 'lucide-react';
+import { Bot, FileText, Stethoscope, ArrowRight, ChevronRight } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { PrimaryButton } from '../components/Common/PrimaryButton';
 
@@ -13,19 +13,22 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
 
   const slides = [
     {
-      icon: <Bot size={64} color="#0f766e" />,
-      title: t.slide1Title,
-      sub: t.slide1Sub
+      id: 'slide_1',
+      icon: <Bot size={60} color="#0f766e" />,
+      title: 'AI Health Assistance',
+      description: 'Instant AI-powered health guidance in your preferred language.'
     },
     {
-      icon: <Stethoscope size={64} color="#0f766e" />,
-      title: t.slide2Title,
-      sub: t.slide2Sub
+      id: 'slide_2',
+      icon: <FileText size={60} color="#0f766e" />,
+      title: 'Health Records',
+      description: 'Securely store and access your health records anytime.'
     },
     {
-      icon: <ShieldAlert size={64} color="#0f766e" />,
-      title: t.slide3Title,
-      sub: t.slide3Sub
+      id: 'slide_3',
+      icon: <Stethoscope size={60} color="#0f766e" />,
+      title: 'Emergency & Village Healthcare',
+      description: 'Connect with nearby healthcare services, emergency support, and village health workers.'
     }
   ];
 
@@ -37,63 +40,138 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }
     }
   };
 
+  const activeSlide = slides[currentSlide];
+
   return (
-    <div style={{ padding: '24px 16px', display: 'flex', flexDirection: 'column', minHeight: '85vh', justifyContent: 'space-between', maxWidth: '560px', margin: '0 auto', width: '100%' }}>
-      {/* Top Header Bar with Skip */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+    <div style={{
+      padding: '24px 16px',
+      display: 'flex',
+      flexDirection: 'column',
+      minHeight: '88vh',
+      justifyContent: 'space-between',
+      maxWidth: '560px',
+      margin: '0 auto',
+      width: '100%',
+      boxSizing: 'border-box'
+    }}>
+      {/* Top Header Bar with Skip Button */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '13px', fontWeight: 700, color: '#0f766e', letterSpacing: '0.5px' }}>
+          STEP {currentSlide + 1} OF 3
+        </span>
+
         <button
+          type="button"
           onClick={onComplete}
-          style={{ fontSize: '14px', fontWeight: 600, color: '#64748b', border: 'none', background: 'none', cursor: 'pointer' }}
+          style={{
+            fontSize: '14px',
+            fontWeight: 700,
+            color: '#64748b',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            transition: 'all 0.2s ease'
+          }}
         >
-          {t.skip}
+          {t.skip || 'Skip'}
         </button>
       </div>
 
-      {/* Slide Content */}
-      <div style={{ textAlign: 'center', padding: '20px 10px' }}>
+      {/* Slide Content with Dynamic Keyframe Transition Key */}
+      <div
+        key={activeSlide.id}
+        style={{
+          textAlign: 'center',
+          padding: '24px 12px',
+          animation: 'slideFadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
+        }}
+      >
+        {/* Animated Feature Icon Container */}
         <div style={{
           backgroundColor: '#f0fdf4',
-          borderRadius: '50%',
-          width: '120px',
-          height: '120px',
+          border: '2px solid #ccfbf1',
+          borderRadius: '32px',
+          width: '128px',
+          height: '128px',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          marginBottom: '24px',
-          boxShadow: '0 8px 24px rgba(15, 118, 110, 0.12)'
+          marginBottom: '28px',
+          boxShadow: '0 12px 32px rgba(15, 118, 110, 0.15)',
+          transition: 'transform 0.3s ease'
         }}>
-          {slides[currentSlide].icon}
+          {activeSlide.icon}
         </div>
 
-        <h2 style={{ fontSize: '24px', color: '#0f766e', marginBottom: '12px' }}>
-          {slides[currentSlide].title}
+        {/* Feature Title */}
+        <h2 style={{
+          fontSize: '24px',
+          fontWeight: 800,
+          color: '#0f766e',
+          marginBottom: '12px',
+          lineHeight: 1.3
+        }}>
+          {activeSlide.title}
         </h2>
 
-        <p style={{ fontSize: '15px', color: '#475569', lineHeight: 1.6, maxWidth: '320px', margin: '0 auto' }}>
-          {slides[currentSlide].sub}
+        {/* Feature Description */}
+        <p style={{
+          fontSize: '15px',
+          color: '#475569',
+          lineHeight: 1.6,
+          maxWidth: '380px',
+          margin: '0 auto',
+          fontWeight: 500
+        }}>
+          {activeSlide.description}
         </p>
 
-        {/* Slide Indicators */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '32px' }}>
-          {slides.map((_, idx) => (
-            <div
-              key={idx}
-              style={{
-                width: currentSlide === idx ? '24px' : '8px',
-                height: '8px',
-                borderRadius: '4px',
-                backgroundColor: currentSlide === idx ? '#0f766e' : '#cbd5e1',
-                transition: 'all 0.3s ease'
-              }}
-            />
-          ))}
+        {/* Animated Page Indicators */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: '8px',
+          marginTop: '36px'
+        }}>
+          {slides.map((_, idx) => {
+            const isActive = currentSlide === idx;
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setCurrentSlide(idx)}
+                aria-label={`Go to slide ${idx + 1}`}
+                style={{
+                  width: isActive ? '32px' : '10px',
+                  height: '10px',
+                  borderRadius: '5px',
+                  backgroundColor: isActive ? '#0f766e' : '#cbd5e1',
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: isActive ? '0 2px 8px rgba(15, 118, 110, 0.3)' : 'none'
+                }}
+              />
+            );
+          })}
         </div>
       </div>
 
-      {/* Next / Get Started Button */}
-      <PrimaryButton onClick={handleNext} style={{ fontSize: '18px', padding: '16px', borderRadius: '14px' }}>
-        <span>{currentSlide === slides.length - 1 ? t.getStarted : t.next}</span>
-        <ArrowRight size={20} />
+      {/* Next / Get Started Action Button */}
+      <PrimaryButton
+        onClick={handleNext}
+        style={{
+          fontSize: '18px',
+          padding: '16px',
+          borderRadius: '16px',
+          boxShadow: '0 8px 20px rgba(15, 118, 110, 0.2)'
+        }}
+      >
+        <span>{currentSlide === slides.length - 1 ? (t.getStarted || 'Get Started') : (t.next || 'Next')}</span>
+        {currentSlide === slides.length - 1 ? <ArrowRight size={20} /> : <ChevronRight size={20} />}
       </PrimaryButton>
     </div>
   );

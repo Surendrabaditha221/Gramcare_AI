@@ -67,21 +67,6 @@ export const indexedDbService = {
         const req = store.get('user_primary');
         req.onsuccess = () => {
           const res = req.result;
-          if (res) {
-            if (res.fullName === 'Baditha Surendra' || res.fullName === 'Rajesh Kumar') {
-              res.fullName = '';
-              res.dob = '';
-              res.age = 0;
-            }
-            if (res.familyMembers && Array.isArray(res.familyMembers)) {
-              res.familyMembers = res.familyMembers.filter((m: any) =>
-                m && m.fullName &&
-                !m.fullName.includes('Sunita') &&
-                !m.fullName.includes('Aarav') &&
-                !m.fullName.includes('Rajesh')
-              );
-            }
-          }
           resolve(res || null);
         };
         req.onerror = () => resolve(null);
@@ -112,14 +97,7 @@ export const indexedDbService = {
         const req = store.getAll();
         req.onsuccess = () => {
           const list: HealthRecord[] = req.result || [];
-          const cleaned = list.filter(r =>
-            r && r.patientName &&
-            !r.patientName.includes('Sunita') &&
-            !r.patientName.includes('Aarav') &&
-            !r.patientName.includes('Rajesh') &&
-            !(r.facilityOrDoctor && r.facilityOrDoctor.includes('Devgarh'))
-          );
-          resolve(cleaned);
+          resolve(list);
         };
         req.onerror = () => resolve([]);
       });

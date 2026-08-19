@@ -1,0 +1,54 @@
+[
+  {
+    "sourceId": "who-ors-diarrhea-2019",
+    "title": "The Treatment of Diarrhoea: A Manual for Physicians and Other Senior Health Workers",
+    "organization": "World Health Organization (WHO)",
+    "url": "https://www.who.int/publications/i/item/9241593180",
+    "publicationDate": "2005-01-01",
+    "version": "4th Revision",
+    "language": "en",
+    "topic": "Dehydration, Oral Rehydration Salts (ORS), Fluid Replacement",
+    "lastVerified": "2026-08-19T00:00:00Z",
+    "tags": ["dehydration", "ors", "fluids", "diarrhea", "vomiting", "hydration", "water", "electrolyte"],
+    "content": "Oral Rehydration Salts (ORS) solution is the primary clinical and home intervention for preventing and treating dehydration. The reduced osmolarity ORS formula (sodium 75 mmol/L, glucose 75 mmol/L) effectively restores fluid and electrolyte balance. Patients should be encouraged to drink small, frequent sips of clean boiled water, ORS solution, rice water, or buttermilk. Zinc supplementation (20 mg/day for children >6 months, 10 mg/day for infants <6 months) for 10-14 days significantly reduces the duration and severity of illness. Seek immediate emergency care at the nearest Primary Health Centre if there are signs of severe dehydration: extreme thirst, sunken eyes, skin pinch going back very slowly (>2 seconds), lethargy or unconsciousness."
+  },
+  {
+    "sourceId": "mohfw-fever-management-2022",
+    "title": "Standard Treatment Guidelines for Clinical Establishments: Management of Acute Febrile Illness",
+    "organization": "Ministry of Health and Family Welfare (MoHFW), Government of India",
+    "url": "https://clinicalestablishments.gov.in/",
+    "publicationDate": "2022-09-10",
+    "version": "National Clinical Guidance",
+    "language": "en",
+    "topic": "Fever, Acute Febrile Illness, Supportive Care",
+    "lastVerified": "2026-08-19T00:00:00Z",
+    "tags": ["fever", "temperature", "febrile", "infection", "body ache", "chills", "paracetamol", "sponging"],
+    "content": "For acute fevers, the primary goal of supportive care is patient comfort and preventing dehydration. Maintain adequate hydration with clean fluids (boiled water, lemon water, dal water, ORS). Tepid sponging with room-temperature water on the forehead and extremities helps lower elevated body temperature naturally. Paracetamol may be used under clinical or pharmacist guidance for symptomatic relief of high fever or body ache. Antibiotics must NOT be used indiscriminately without laboratory evaluation. Patients must be referred to the nearest Primary Health Centre (PHC) or Community Health Centre (CHC) if fever persists beyond 3 days, temperature exceeds 102°F (38.9°C), or if danger signs occur: severe headache, neck stiffness, persistent vomiting, rash, confusion, or difficulty breathing."
+  },
+  {
+    "sourceId": "cdc-heat-dehydration-2023",
+    "title": "About Heat and Your Health: Warning Signs and Prevention of Heat-Related Illness and Dehydration",
+    "organization": "Centers for Disease Control and Prevention (CDC)",
+    "url": "https://www.cdc.gov/heat-health/about/index.html",
+    "publicationDate": "2023-06-20",
+    "version": "CDC Public Health Guidance",
+    "language": "en",
+    "topic": "Heat Exhaustion, Dehydration, Fluid Intake",
+    "lastVerified": "2026-08-19T00:00:00Z",
+    "tags": ["heat", "dehydration", "exhaustion", "thirst", "dry mouth", "dizziness", "sunstroke", "cramps"],
+    "content": "To prevent dehydration, individuals—especially agricultural workers, children, and the elderly—should drink plenty of clean fluids before feeling thirsty. Early signs of mild dehydration include dry mouth, dark yellow urine, fatigue, and mild lightheadedness. Heavy sweating in high ambient temperatures depletes both water and essential minerals; replenishing with electrolyte solutions (such as ORS) or clean water with a pinch of salt is recommended. If severe heat exhaustion or heat stroke occurs (hot red dry skin, confusion, rapid pulse, fainting), move the person to a cool shaded place immediately, apply wet cloths, and transport them to the nearest hospital or emergency centre."
+  },
+  {
+    "sourceId": "who-pediatric-respiratory-2021",
+    "title": "Pocket Book of Hospital Care for Children: Guidelines for the Management of Common Childhood Illnesses",
+    "organization": "World Health Organization (WHO)",
+    "url": "https://www.who.int/publications/i/item/9789241548373",
+    "publicationDate": "2013-06-03",
+    "version": "Second Edition",
+    "language": "en",
+    "topic": "Pediatric Cough, Respiratory Infections, Fast Breathing",
+    "lastVerified": "2026-08-19T00:00:00Z",
+    "tags": ["cough", "child", "pediatric", "breathing", "respiratory", "cold", "throat", "chest indrawing"],
+    "content": "In children presenting with cough or cold symptoms, soothing home remedies such as warm fluids, clean honey (for children over 1 year of age), and continued breastfeeding/nutrition are recommended. Over-the-counter cough syrups with sedatives or decongestants should be avoided in young infants. Danger signs requiring immediate emergency evaluation at a Primary Health Centre include fast breathing (>50 breaths/min in infants 2-11 months, >40 breaths/min in children 1-5 years), chest indrawing (lower chest sucks in when breathing), stridor while calm, inability to drink or breastfeed, or persistent lethargy."
+  }
+]

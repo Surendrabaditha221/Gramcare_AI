@@ -1,0 +1,34 @@
+# Local secrets and credentials - MUST NEVER BE INCLUDED IN IMAGES
+secrets/
+backend/secrets/
+*.json
+!requirements.txt
+
+# Local environment variables
+.env
+.env.*
+!.env.example
+
+# Version control and IDE files
+.git
+.gitignore
+.agents/
+.gemini/
+.idea/
+.vscode/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.log
+
+# Node & Frontend artifacts
+node_modules/
+dist/
+build/
+coverage/
+.npm

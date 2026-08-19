@@ -39,29 +39,6 @@ export const localStorageService = {
       const data = localStorage.getItem(key);
       let rawProfile: UserProfile = data ? JSON.parse(data) : INITIAL_USER_PROFILE;
 
-      if (rawProfile) {
-        if (rawProfile.fullName === 'Baditha Surendra' || rawProfile.fullName === 'Rajesh Kumar') {
-          if (!rawProfile.isOnboardingCompleted) {
-            rawProfile.fullName = '';
-            rawProfile.dob = '';
-            rawProfile.age = 0;
-            rawProfile.village = '';
-            rawProfile.district = '';
-            rawProfile.emergencyContactPhone = undefined;
-            rawProfile.ashaWorkerPhone = undefined;
-            rawProfile.isOnboardingCompleted = false;
-          }
-        }
-        if (rawProfile.familyMembers && Array.isArray(rawProfile.familyMembers)) {
-          rawProfile.familyMembers = rawProfile.familyMembers.filter(m =>
-            m && m.fullName &&
-            !m.fullName.includes('Sunita') &&
-            !m.fullName.includes('Aarav') &&
-            !m.fullName.includes('Rajesh')
-          );
-        }
-      }
-
       const updatedPrimaryAge = rawProfile.dob ? calculateAgeFromDOB(rawProfile.dob) : rawProfile.age;
       const deduplicated = deduplicateFamily(rawProfile.familyMembers || []);
       const updatedFamily = deduplicated.map(member => ({
@@ -152,13 +129,7 @@ export const localStorageService = {
       const key = getRecordsKey(uid);
       const data = localStorage.getItem(key);
       const rawRecords: HealthRecord[] = data ? JSON.parse(data) : [];
-      return rawRecords.filter(r =>
-        r && r.patientName &&
-        !r.patientName.includes('Sunita') &&
-        !r.patientName.includes('Aarav') &&
-        !r.patientName.includes('Rajesh') &&
-        !(r.facilityOrDoctor && r.facilityOrDoctor.includes('Devgarh'))
-      );
+      return rawRecords.filter(r => r && r.patientName);
     } catch {
       return [];
     }
@@ -180,11 +151,7 @@ export const localStorageService = {
     try {
       const data = localStorage.getItem(getNotifsKey(uid));
       const rawNotifs: NotificationItem[] = data ? JSON.parse(data) : [];
-      return rawNotifs.filter(n =>
-        n && n.message &&
-        !n.message.includes('Sunita') &&
-        !n.message.includes('Devgarh')
-      );
+      return rawNotifs.filter(n => n && n.message);
     } catch {
       return [];
     }
