@@ -8,7 +8,7 @@ import os
 import json
 import logging
 import traceback
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from google import genai
 from google.genai import types, errors
@@ -109,6 +109,25 @@ LANGUAGE ADAPTABILITY
 • If Telugu is requested, write fluent, natural, grammatically correct Telugu (తెలుగు) without English mixing.
 • If Hindi is requested, write fluent, natural, respectful Hindi (हिन्दी).
 • If English is requested, write clear, simple, accessible English.
+
+--------------------------------------------------------
+LOCATION CONTEXT & NEARBY HEALTHCARE FACILITIES
+--------------------------------------------------------
+• When the user asks about nearby healthcare, hospitals, PHCs, CHCs, clinics, doctors, pharmacies, diagnostic labs, emergency centers, or hospital phone numbers:
+  - If REAL VERIFIED NEARBY HEALTHCARE FACILITIES are provided in the prompt context:
+    1. Acknowledge the user's location gracefully.
+    2. Present the retrieved facilities clearly with their verified details:
+       - Name of the facility
+       - Category / Facility Type (PHC, CHC, Hospital, Clinic, Pharmacy, Diagnostic Lab)
+       - Distance in km from user's active location
+       - Location / Village / Town / District
+       - Phone Number: Show the exact phone number IF listed in the data. If the phone is not present or None, clearly state "Phone: Not listed in public registry". NEVER make up or guess phone numbers.
+       - Emergency / Opening hours info if present.
+    3. Remind the user that for life-threatening critical emergencies, they can dial national emergency hotlines (108 for Ambulance, 112 for National Emergency).
+  - If the prompt indicates that no matching facilities were found within the search radius:
+    * State clearly: "I couldn't find a matching facility within the search radius of your current location. Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital, or try expanding the search radius in the Nearby Healthcare section."
+  - NEVER say "I don't have access to your GPS/location" or "I cannot look up locations" when valid location context or facility data is provided in the prompt.
+  - NEVER invent or hallucinate fictional hospital names, fake addresses, or fake phone numbers.
 """
 
 LANG_NAME_MAP = {
@@ -154,7 +173,84 @@ def get_localized_greeting(lang: str, patient_name: str) -> str:
     return messages.get(lang, messages["en"])
 
 
+def is_facility_query(message: str) -> bool:
+    m = message.lower()
+    facility_keywords = [
+        "hospital", "clinic", "phc", "chc", "doctor", "pharmacy", "chemist", "medical store",
+        "diagnostic", "lab", "pathology", "ambulance", "phone", "number", "contact", "address",
+        "near", "nearby", "nearest", "around", "closest", "location", "centre", "center",
+        "ఆసుపత్రి", "క్లినిక్", "డాక్టర్", "మందుల షాపు", "ల్యాబ్", "ఫోన్", "నెంబర్", "దగ్గర", "సమీప",
+        "अस्पताल", "दवाखाना", "क्लिनिक", "डॉक्टर", "दवा", "फोन", "नंबर", "पास", "नजदीक"
+    ]
+    return any(k in m for k in facility_keywords)
+
+
+async def build_location_facility_context(
+    message: str,
+    location_context: Optional[Dict[str, Any]]
+) -> tuple[str, Optional[List[dict]]]:
+    if not location_context:
+        return "", None
+
+    lat = location_context.get("latitude")
+    lon = location_context.get("longitude")
+    source = location_context.get("source", "gps")
+    addr_name = location_context.get("addressName") or location_context.get("displayName") or "Current Location"
+
+    source_label = "GPS Active" if source == "gps" else "Approximate Location (IP)"
+    loc_str = (
+        f"Location Source: {source_label}\n"
+        f"Coordinates: {lat}, {lon}\n"
+        f"Active Area / Village / Town: {addr_name}\n"
+    )
+
+    facilities_list = None
+    fac_str = ""
+
+    if lat is not None and lon is not None:
+        try:
+            from routers.facilities import query_verified_facilities
+            m_lower = message.lower()
+            cat = "all"
+            if any(k in m_lower for k in ["phc", "primary health", "chc", "sub centre", "sub-centre"]):
+                cat = "phc"
+            elif any(k in m_lower for k in ["pharmacy", "chemist", "medical store", "dawa", "mandula"]):
+                cat = "pharmacy"
+            elif any(k in m_lower for k in ["diagnostic", "lab", "pathology", "blood test"]):
+                cat = "diagnostic"
+            elif any(k in m_lower for k in ["hospital", "asupatri", "hospital phone", "hospital number"]):
+                cat = "hospital"
+            elif any(k in m_lower for k in ["clinic", "doctor", "dispensary"]):
+                cat = "clinic"
+
+            facilities_list = await query_verified_facilities(float(lat), float(lon), radius_km=25.0, category=cat)
+
+            if facilities_list:
+                fac_str = f"Found {len(facilities_list)} real verified facilities within 25 km:\n"
+                for idx, f in enumerate(facilities_list[:5], 1):
+                    phone_val = f.get("phone") or "Not listed in public registry"
+                    fac_str += (
+                        f"{idx}. {f.get('name')} ({f.get('type', '').upper()})\n"
+                        f"   - Distance: {f.get('distanceKm')} km away\n"
+                        f"   - Location: {f.get('villageOrTaluka')}, {f.get('district')}\n"
+                        f"   - Phone: {phone_val}\n"
+                        f"   - Emergency: {'24/7' if f.get('emergency24x7') else f.get('openingHours') or 'Standard hours'}\n"
+                    )
+            else:
+                fac_str = f"No verified healthcare facilities found within 25 km of {addr_name} in OpenStreetMap registry.\n"
+        except Exception as e:
+            logger.warning(f"Failed to query facilities for chat context: {e}")
+            fac_str = "Facility lookup service unavailable.\n"
+
+    full_context = f"==================== CURRENT ACTIVE USER LOCATION ====================\n{loc_str}\n"
+    if fac_str:
+        full_context += f"==================== REAL VERIFIED NEARBY HEALTHCARE FACILITIES ====================\n{fac_str}\n"
+
+    return full_context, facilities_list
+
+
 class GeminiService:
+
 
     @staticmethod
     async def evaluate_triage(
@@ -501,11 +597,12 @@ class GeminiService:
         patient_name: Optional[str] = "Patient",
         language: str = "en",
         history: Optional[list] = None,
-        patient_context: Optional[Dict[str, Any]] = None
+        patient_context: Optional[Dict[str, Any]] = None,
+        location_context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Real Health-Only AI Assistant with Intent Classification, Emergency Escalation,
-        Multi-turn Context Memory, Patient Health Context Integration, and Multi-Language Support.
+        Multi-turn Context Memory, Patient Health Context Integration, Location Context, and Multi-Language Support.
         """
         query_lower = message.lower().strip()
 
@@ -538,7 +635,8 @@ class GeminiService:
         intent = GeminiService.classify_intent(message, history, patient_context)
 
         # Step 3: Handle NON_HEALTH_QUERY (Health-Only Boundary Enforcement)
-        if intent == "NON_HEALTH_QUERY":
+        # Exclude facility queries from non-health check
+        if intent == "NON_HEALTH_QUERY" and not is_facility_query(message):
             selected_reply = get_localized_non_health(language)
             return {
                 "reply": selected_reply,
@@ -579,6 +677,9 @@ class GeminiService:
 
         target_lang_name = LANG_NAME_MAP.get(language, "English")
 
+        # Build location and verified healthcare facilities context
+        location_facility_str, facilities_list = await build_location_facility_context(message, location_context)
+
         # Step 4: AI Model Execution via Gemini API (if GEMINI_API_KEY configured)
         client = get_genai_client()
         if client:
@@ -600,6 +701,7 @@ class GeminiService:
                     f"Target Output Language: {target_lang_name} ({language})\n"
                     f"CRITICAL INSTRUCTION: You MUST write your entire response ONLY in {target_lang_name}. Do NOT use English unless the selected language is English.\n\n"
                     f"==================== CLINICAL PATIENT CONTEXT ====================\n{context_str}\n\n"
+                    f"{location_facility_str}\n"
                     f"==================== CONVERSATION HISTORY ====================\n{formatted_history}\n\n"
                     f"==================== RETRIEVED TRUSTED MEDICAL KNOWLEDGE ====================\n{sources_prompt_str}\n\n"
                     f"==================== USER QUESTION ====================\n{message}"
@@ -738,6 +840,25 @@ class GeminiService:
                 "4. Drink plenty of clean boiled water throughout the day."
             )
 
+        elif is_facility_query(message):
+            addr_name = (location_context or {}).get("addressName") or (location_context or {}).get("displayName") or "your active location"
+            if facilities_list:
+                reply_text = f"Here are verified healthcare facilities found near {addr_name}:\n\n"
+                for idx, f in enumerate(facilities_list[:5], 1):
+                    phone_val = f.get("phone") or "Not listed in public registry"
+                    reply_text += (
+                        f"{idx}. {f.get('name')} ({f.get('type', '').upper()})\n"
+                        f"   • Distance: {f.get('distanceKm')} km away\n"
+                        f"   • Location: {f.get('villageOrTaluka')}, {f.get('district')}\n"
+                        f"   • Phone: {phone_val}\n"
+                        f"   • Emergency / Hours: {'24/7' if f.get('emergency24x7') else f.get('openingHours') or 'Standard hours'}\n\n"
+                    )
+                reply_text += "Phone numbers are shown only when provided by verified registries. For emergency ambulance assistance, you can also dial 108 or 112 directly."
+            elif location_context and (location_context.get("latitude") is not None):
+                reply_text = f"I couldn't find a matching hospital or healthcare facility within 25 km of your current location ({addr_name}). Try increasing the search radius in the Nearby Healthcare section or visit your nearest PHC/hospital."
+            else:
+                reply_text = "To find nearby healthcare facilities and hospitals with verified phone numbers, please allow location access or search your village/city in the Nearby Healthcare section."
+
         else:
             reply_text = f"Namaste! GramCare AI is here to assist {patient_name} with health questions, symptoms, first aid, medicines, and wellness. How can I help you today?"
 
@@ -756,7 +877,8 @@ class GeminiService:
         patient_name: Optional[str] = "Patient",
         language: str = "en",
         history: Optional[list] = None,
-        patient_context: Optional[Dict[str, Any]] = None
+        patient_context: Optional[Dict[str, Any]] = None,
+        location_context: Optional[Dict[str, Any]] = None
     ):
         """
         Real-Time AI Response Streaming Generator for GramCare AI.
@@ -772,7 +894,7 @@ class GeminiService:
         intent = GeminiService.classify_intent(message, history)
 
         # Step 2: Handle NON_HEALTH_QUERY
-        if intent == "NON_HEALTH_QUERY":
+        if intent == "NON_HEALTH_QUERY" and not is_facility_query(message):
             reply = get_localized_non_health(language)
             logger.info("[STREAM Boundary] Non-health query intent detected. Yielding boundary response.")
             yield reply
@@ -803,6 +925,9 @@ class GeminiService:
 
         target_lang_name = LANG_NAME_MAP.get(language, "English")
 
+        # Build location and verified healthcare facilities context
+        location_facility_str, facilities_list = await build_location_facility_context(message, location_context)
+
         # Step 5: AI Streaming Execution via Gemini API (if GEMINI_API_KEY configured)
         client = get_genai_client()
         if client:
@@ -824,6 +949,7 @@ class GeminiService:
                     f"Target Output Language: {target_lang_name} ({language})\n"
                     f"CRITICAL INSTRUCTION: You MUST write your entire response ONLY in {target_lang_name}. Do NOT use English unless the selected language is English.\n\n"
                     f"==================== CLINICAL PATIENT CONTEXT ====================\n{context_str}\n\n"
+                    f"{location_facility_str}\n"
                     f"==================== CONVERSATION HISTORY ====================\n{formatted_history}\n\n"
                     f"==================== RETRIEVED TRUSTED MEDICAL KNOWLEDGE ====================\n{sources_prompt_str}\n\n"
                     f"==================== USER QUESTION ====================\n{message}"
@@ -924,7 +1050,8 @@ class GeminiService:
             patient_name=patient_name,
             language=language,
             history=history,
-            patient_context=patient_context
+            patient_context=patient_context,
+            location_context=location_context
         )
         fallback_text = fallback_res.get("reply", "")
         if fallback_text:
