@@ -32,16 +32,26 @@ def get_genai_client() -> Optional[genai.Client]:
 
 def serialize_request_json(client: genai.Client, model: str, contents: Any, config: Optional[types.GenerateContentConfig] = None) -> str:
     """
-    Helper to serialize the exact HTTP request body sent to Gemini REST API.
+    Serializes a Gemini request to JSON for debug logging purposes.
+    Uses standard Python JSON serialization — does not depend on private SDK internals.
     """
     try:
-        pm = types._GenerateContentParameters(
-            model=model,
-            contents=contents,
-            config=config
-        )
-        req_dict = _GenerateContentParameters_to_mldev(client._api_client, pm, None, pm)
-        return json.dumps(req_dict, indent=2)
+        def _safe_serialize(obj: Any) -> Any:
+            if hasattr(obj, "__dict__"):
+                return {k: _safe_serialize(v) for k, v in vars(obj).items() if not k.startswith("_") and v is not None}
+            if isinstance(obj, (list, tuple)):
+                return [_safe_serialize(i) for i in obj]
+            if isinstance(obj, dict):
+                return {k: _safe_serialize(v) for k, v in obj.items()}
+            return obj
+
+        payload: dict = {
+            "model": model,
+            "contents": _safe_serialize(contents),
+        }
+        if config is not None:
+            payload["generationConfig"] = _safe_serialize(config)
+        return json.dumps(payload, indent=2, default=str)
     except Exception as e:
         return f'{{"error": "Failed to serialize request JSON: {e}"}}'
 
