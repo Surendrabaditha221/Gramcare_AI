@@ -25,11 +25,12 @@ messaging.onBackgroundMessage((payload) => {
   const body = payload.notification?.body || payload.data?.body || `${senderName} has triggered an emergency alert.`;
   const alertId = payload.data?.alertId || payload.data?.eventId || '';
   const clickUrl = payload.data?.url || (alertId ? `/emergency/${alertId}` : '/');
+  const apiBase = payload.data?.apiBaseUrl || '';
 
   // Report physical delivery receipt back to backend (confirms true device delivery)
   if (alertId) {
     try {
-      fetch(`/api/emergency/${encodeURIComponent(alertId)}/delivered`, {
+      fetch(`${apiBase}/api/emergency/${encodeURIComponent(alertId)}/delivered`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: 'sw_background' })
@@ -50,7 +51,8 @@ messaging.onBackgroundMessage((payload) => {
     data: {
       url: clickUrl,
       alertId: alertId,
-      eventId: alertId
+      eventId: alertId,
+      apiBaseUrl: apiBase
     },
     actions: [
       { action: 'open_alert', title: '🚨 View Alert' },
@@ -66,11 +68,12 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const alertId = event.notification.data?.alertId || event.notification.data?.eventId;
+  const apiBase = event.notification.data?.apiBaseUrl || '';
 
   // Report that notification was opened
   if (alertId) {
     try {
-      fetch(`/api/emergency/${encodeURIComponent(alertId)}/opened`, {
+      fetch(`${apiBase}/api/emergency/${encodeURIComponent(alertId)}/opened`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source: 'sw_click' })

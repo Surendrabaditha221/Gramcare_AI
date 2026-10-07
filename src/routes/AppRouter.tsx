@@ -35,6 +35,7 @@ import { HealthRecord, DocumentScanResult } from '../types/records';
 import { EmergencyModal } from '../components/Emergency/EmergencyModal';
 import { FamilyEmergencyAlertScreen } from '../screens/FamilyEmergencyAlertScreen';
 import { listenToForegroundMessages } from '../services/fcm';
+import { getApiBaseUrl } from '../config/apiConfig';
 import { Loader2, AlertTriangle } from 'lucide-react';
 
 export const AppRouter: React.FC = () => {
@@ -385,7 +386,7 @@ export const AppRouter: React.FC = () => {
               wordBreak: 'break-all',
               textAlign: 'left'
             }}>
-              <div><strong>Backend Target:</strong> {backendTargetUrl || 'http://10.237.218.153:8000'}</div>
+              <div><strong>Backend Target:</strong> {backendTargetUrl || getApiBaseUrl()}</div>
               <div style={{ marginTop: '4px', color: serverHealthy === false ? '#dc2626' : '#64748b' }}>
                 <strong>Status:</strong> {serverHealthy === false ? 'Offline / Unreachable' : 'Verifying...'}
               </div>

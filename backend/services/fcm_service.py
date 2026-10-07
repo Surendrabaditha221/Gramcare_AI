@@ -91,6 +91,7 @@ class FCMService:
             "timestamp": str(ts),
             "clickUrl": click_url,
             "url": click_url,
+            "apiBaseUrl": str(server_base_url or ""),
             "priority": "high"
         }
 

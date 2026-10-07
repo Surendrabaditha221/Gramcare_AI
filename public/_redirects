@@ -1,0 +1,3 @@
+# Render / SPA static site rewrite rule
+# Ensures all client-side routes (e.g. /emergency/:id, /auth, /dashboard) serve index.html with a 200 status
+/*    /index.html   200

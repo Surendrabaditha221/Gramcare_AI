@@ -84,6 +84,120 @@ async def get_my_alerts(
     return [EmergencyEventResponse(**a) for a in alerts]
 
 
+# ─────────────────────────────────────────────────────────────
+# 2. Emergency Contacts Management (Static routes before {id} wildcard)
+# ─────────────────────────────────────────────────────────────
+
+@router.get(
+    "/emergency/contacts",
+    response_model=List[EmergencyContactResponse],
+    summary="List Registered Emergency Contacts for Authenticated Patient"
+)
+async def get_emergency_contacts(
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Retrieves all emergency contacts associated with the authenticated patient.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    contacts = await FirestoreEmergencyService.list_emergency_contacts(uid)
+    return [EmergencyContactResponse(**c) for c in contacts]
+
+
+@router.post(
+    "/emergency/contacts",
+    response_model=EmergencyContactResponse,
+    summary="Add New Emergency Contact"
+)
+async def create_emergency_contact(
+    contact: EmergencyContactCreate,
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Adds a new emergency contact under the patient's profile.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    created = await FirestoreEmergencyService.create_emergency_contact(uid, contact.model_dump())
+    return EmergencyContactResponse(**created)
+
+
+@router.put(
+    "/emergency/contacts/{id}",
+    response_model=EmergencyContactResponse,
+    summary="Update Emergency Contact Details or Notification Settings"
+)
+async def update_emergency_contact(
+    id: str,
+    updates: EmergencyContactUpdate,
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Updates an emergency contact's details or toggles notification participation.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    updated = await FirestoreEmergencyService.update_emergency_contact(
+        uid, id, updates.model_dump(exclude_unset=True)
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Emergency contact not found")
+
+    return EmergencyContactResponse(**updated)
+
+
+@router.delete(
+    "/emergency/contacts/{id}",
+    summary="Delete Emergency Contact"
+)
+async def delete_emergency_contact(
+    id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Removes an emergency contact from the patient's account.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    success = await FirestoreEmergencyService.delete_emergency_contact(uid, id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Emergency contact not found")
+
+    return {"success": True, "message": "Emergency contact deleted successfully"}
+
+
+@router.get(
+    "/emergency/lookup-user",
+    summary="Lookup Registered GramCare User for Emergency Contact Linking"
+)
+async def lookup_gramcare_user(
+    query: str,
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Looks up a registered user by email, phone, or User ID to link as an emergency contact.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    result = await FirestoreEmergencyService.lookup_gramcare_user(query, uid)
+    return result
+
+
+@router.post(
+    "/emergency/contacts/clean-duplicates",
+    summary="Safely Clean Duplicate Emergency Contacts"
+)
+async def clean_duplicate_contacts(
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Finds and safely deletes duplicate emergency contacts sharing the same phone number.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    result = await FirestoreEmergencyService.clean_duplicate_emergency_contacts(uid)
+    return result
+
+
+# ─────────────────────────────────────────────────────────────
+# 1. Emergency Alert Detail & Status Workflow ({id} wildcards)
+# ─────────────────────────────────────────────────────────────
+
 @router.get(
     "/emergency/{id}",
     response_model=EmergencyEventResponse,
@@ -244,116 +358,6 @@ async def resolve_emergency_alert(
         raise HTTPException(status_code=404, detail="Emergency event not found")
 
     return EmergencyEventResponse(**updated)
-
-
-# ─────────────────────────────────────────────────────────────
-# 2. Emergency Contacts Management
-# ─────────────────────────────────────────────────────────────
-
-@router.get(
-    "/emergency/contacts",
-    response_model=List[EmergencyContactResponse],
-    summary="List Registered Emergency Contacts for Authenticated Patient"
-)
-async def get_emergency_contacts(
-    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
-):
-    """
-    Retrieves all emergency contacts associated with the authenticated patient.
-    """
-    uid = current_user.get("uid") or current_user.get("id")
-    contacts = await FirestoreEmergencyService.list_emergency_contacts(uid)
-    return [EmergencyContactResponse(**c) for c in contacts]
-
-
-@router.post(
-    "/emergency/contacts",
-    response_model=EmergencyContactResponse,
-    summary="Add New Emergency Contact"
-)
-async def create_emergency_contact(
-    contact: EmergencyContactCreate,
-    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
-):
-    """
-    Adds a new emergency contact under the patient's profile.
-    """
-    uid = current_user.get("uid") or current_user.get("id")
-    created = await FirestoreEmergencyService.create_emergency_contact(uid, contact.model_dump())
-    return EmergencyContactResponse(**created)
-
-
-@router.put(
-    "/emergency/contacts/{id}",
-    response_model=EmergencyContactResponse,
-    summary="Update Emergency Contact Details or Notification Settings"
-)
-async def update_emergency_contact(
-    id: str,
-    updates: EmergencyContactUpdate,
-    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
-):
-    """
-    Updates an emergency contact's details or toggles notification participation.
-    """
-    uid = current_user.get("uid") or current_user.get("id")
-    updated = await FirestoreEmergencyService.update_emergency_contact(
-        uid, id, updates.model_dump(exclude_unset=True)
-    )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Emergency contact not found")
-
-    return EmergencyContactResponse(**updated)
-
-
-@router.delete(
-    "/emergency/contacts/{id}",
-    summary="Delete Emergency Contact"
-)
-async def delete_emergency_contact(
-    id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
-):
-    """
-    Removes an emergency contact from the patient's account.
-    """
-    uid = current_user.get("uid") or current_user.get("id")
-    success = await FirestoreEmergencyService.delete_emergency_contact(uid, id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Emergency contact not found")
-
-    return {"success": True, "message": "Emergency contact deleted successfully"}
-
-
-@router.get(
-    "/emergency/lookup-user",
-    summary="Lookup Registered GramCare User for Emergency Contact Linking"
-)
-async def lookup_gramcare_user(
-    query: str,
-    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
-):
-    """
-    Looks up a registered user by email, phone, or User ID to link as an emergency contact.
-    """
-    uid = current_user.get("uid") or current_user.get("id")
-    result = await FirestoreEmergencyService.lookup_gramcare_user(query, uid)
-    return result
-
-
-@router.post(
-    "/emergency/contacts/clean-duplicates",
-    summary="Safely Clean Duplicate Emergency Contacts"
-)
-async def clean_duplicate_contacts(
-    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
-):
-    """
-    Finds and safely deletes duplicate emergency contacts sharing the same phone number.
-    """
-    uid = current_user.get("uid") or current_user.get("id")
-    result = await FirestoreEmergencyService.clean_duplicate_emergency_contacts(uid)
-    return result
 
 
 # ─────────────────────────────────────────────────────────────

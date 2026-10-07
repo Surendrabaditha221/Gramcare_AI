@@ -3,9 +3,7 @@ const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/favicon.svg',
-  '/icons.svg',
-  '/src/main.tsx',
-  '/src/index.css'
+  '/icons.svg'
 ];
 
 // Install Event: Cache essential app shell files
