@@ -1,6 +1,10 @@
-import React, { useState } from 'react';
-import { Settings as SettingsIcon, Languages, Bell, Shield, Trash2, Info, LogOut, Check, Lock, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Settings as SettingsIcon, Languages, Bell, Trash2, Info, LogOut, Check, Lock, AlertTriangle,
+  Search, X, Globe2, CheckCircle2
+} from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
+import { SCHEDULED_INDIAN_LANGUAGES, IndianLanguage } from '../data/indianLanguages';
 import { localStorageService } from '../services/localStorageService';
 import { indexedDbService } from '../services/indexedDbService';
 import { deleteAccountBackend, changePasswordBackend } from '../services/api';
@@ -10,9 +14,56 @@ interface SettingsScreenProps {
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onLogout }) => {
-  const { lang, switchLanguage, t } = useLanguage();
+  const { lang, selectedLanguageCode, selectedLanguageMeta, switchLanguage, t } = useLanguage();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [clearedNotice, setClearedNotice] = useState<string | null>(null);
+
+  // App Language Modal State
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [tempLangCode, setTempLangCode] = useState<string>(selectedLanguageCode || lang || 'en');
+  const [langSearchQuery, setLangSearchQuery] = useState('');
+  const [langSuccessNotice, setLangSuccessNotice] = useState<string | null>(null);
+  const langSearchInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus search input when language modal opens
+  useEffect(() => {
+    if (showLanguageModal) {
+      const timer = setTimeout(() => {
+        langSearchInputRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    } else {
+      setLangSearchQuery('');
+    }
+  }, [showLanguageModal]);
+
+  // Keyboard navigation: Escape key closes language modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showLanguageModal) {
+        setShowLanguageModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showLanguageModal]);
+
+  // Current language metadata
+  const currentLang =
+    SCHEDULED_INDIAN_LANGUAGES.find((l) => l.code === (selectedLanguageCode || lang)) ||
+    selectedLanguageMeta ||
+    SCHEDULED_INDIAN_LANGUAGES[0];
+
+  // Filter languages in modal
+  const filteredLanguages = SCHEDULED_INDIAN_LANGUAGES.filter((item) => {
+    const q = langSearchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      item.englishName.toLowerCase().includes(q) ||
+      item.nativeName.toLowerCase().includes(q) ||
+      item.script.toLowerCase().includes(q)
+    );
+  });
 
   // Password state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -89,56 +140,106 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onLogout }) => {
         </div>
       )}
 
-      {/* Language Setting */}
+      {/* Language Success Toast */}
+      {langSuccessNotice && (
+        <div style={{
+          backgroundColor: '#f0fdf4',
+          color: '#15803d',
+          border: '1px solid #bbf7d0',
+          borderRadius: '10px',
+          padding: '10px 14px',
+          marginBottom: '16px',
+          fontSize: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <CheckCircle2 size={18} color="#16a34a" />
+          <span>{langSuccessNotice}</span>
+        </div>
+      )}
+
+      {/* App Language Section */}
       <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
           <Languages size={20} color="#0f766e" />
-          <h3 style={{ margin: 0, fontSize: '17px', color: '#1e293b' }}>
-            {t.langSetting}
+          <h3 style={{ margin: 0, fontSize: '17px', color: '#1e293b', fontWeight: 700 }}>
+            {t.langSetting || 'App Language'}
           </h3>
         </div>
+        <p style={{ margin: '0 0 16px 0', fontSize: '13px', color: '#64748b' }}>
+          Choose your preferred language for GramCare AI.
+        </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          <button
-            type="button"
-            onClick={() => switchLanguage('en')}
-            style={{
-              backgroundColor: lang === 'en' ? '#0f766e' : '#f8fafc',
-              color: lang === 'en' ? '#ffffff' : '#334155',
-              border: `1.5px solid ${lang === 'en' ? '#0f766e' : '#cbd5e1'}`,
-              borderRadius: '12px',
-              padding: '10px',
-              fontSize: '14px',
-              fontWeight: 600,
+        {/* Selected Language Display Card with Change Language Button */}
+        <div style={{
+          backgroundColor: '#f8fafc',
+          border: '1.5px solid #e2e8f0',
+          borderRadius: '14px',
+          padding: '14px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{
+              backgroundColor: '#f0fdfa',
+              border: '1px solid #ccfbf1',
+              borderRadius: '10px',
+              width: '42px',
+              height: '42px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '6px'
-            }}
-          >
-            <span>English</span>
-            {lang === 'en' && <Check size={16} />}
-          </button>
+              color: '#0f766e',
+              flexShrink: 0
+            }}>
+              <Globe2 size={22} />
+            </div>
+            <div>
+              <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e293b', lineHeight: 1.2 }}>
+                {currentLang.nativeName} ({currentLang.englishName})
+              </div>
+              <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px' }}>
+                Script: {currentLang.script}
+              </div>
+            </div>
+          </div>
 
           <button
             type="button"
-            onClick={() => switchLanguage('te')}
+            onClick={() => {
+              setTempLangCode(selectedLanguageCode || lang || 'en');
+              setLangSearchQuery('');
+              setShowLanguageModal(true);
+            }}
             style={{
-              backgroundColor: lang === 'te' ? '#0f766e' : '#f8fafc',
-              color: lang === 'te' ? '#ffffff' : '#334155',
-              border: `1.5px solid ${lang === 'te' ? '#0f766e' : '#cbd5e1'}`,
-              borderRadius: '12px',
-              padding: '10px',
-              fontSize: '14px',
-              fontWeight: 600,
+              backgroundColor: '#ffffff',
+              border: '1.5px solid #0f766e',
+              color: '#0f766e',
+              borderRadius: '10px',
+              padding: '8px 18px',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px'
+              gap: '6px',
+              boxShadow: '0 1px 3px rgba(15, 118, 110, 0.1)',
+              transition: 'all 0.15s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#0f766e';
+              e.currentTarget.style.color = '#ffffff';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = '#ffffff';
+              e.currentTarget.style.color = '#0f766e';
             }}
           >
-            <span>తెలుగు (Telugu)</span>
-            {lang === 'te' && <Check size={16} />}
+            <span>{t.changeLanguage || 'Change Language'}</span>
           </button>
         </div>
       </div>
@@ -417,6 +518,287 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onLogout }) => {
                 style={{ flex: 1 }}
               >
                 {isDeleting ? 'Deleting...' : 'Permanently Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Change Language Modal Dialog ── */}
+      {showLanguageModal && (
+        <div
+          onClick={() => setShowLanguageModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.55)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            boxSizing: 'border-box'
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Select Language"
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '24px',
+              maxWidth: '460px',
+              width: '100%',
+              maxHeight: '82vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{
+              padding: '20px 24px 14px',
+              borderBottom: '1px solid #f1f5f9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: '#1e293b' }}>
+                  {t.selectLanguageModalTitle || 'Change Language'}
+                </h2>
+                <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                  {t.selectLanguageModalSub || 'Choose your preferred language for GramCare AI.'}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowLanguageModal(false)}
+                title="Close (Esc)"
+                style={{
+                  backgroundColor: '#f1f5f9',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#64748b'
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Search Input Bar */}
+            <div style={{ padding: '14px 20px 10px', position: 'relative' }}>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <Search
+                  size={18}
+                  color="#94a3b8"
+                  style={{
+                    position: 'absolute',
+                    left: '14px',
+                    pointerEvents: 'none'
+                  }}
+                />
+                <input
+                  ref={langSearchInputRef}
+                  type="text"
+                  value={langSearchQuery}
+                  onChange={(e) => setLangSearchQuery(e.target.value)}
+                  placeholder={t.searchLanguagesPlaceholder || 'Search languages...'}
+                  style={{
+                    width: '100%',
+                    padding: '11px 40px 11px 42px',
+                    borderRadius: '14px',
+                    border: '1.5px solid #cbd5e1',
+                    fontSize: '14px',
+                    backgroundColor: '#f8fafc',
+                    color: '#1e293b',
+                    outline: 'none',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                {langSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setLangSearchQuery('')}
+                    title="Clear search"
+                    style={{
+                      position: 'absolute',
+                      right: '12px',
+                      background: 'none',
+                      border: 'none',
+                      padding: '4px',
+                      cursor: 'pointer',
+                      color: '#94a3b8',
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Scrollable Language List */}
+            <div style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '4px 14px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              {filteredLanguages.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '36px 16px', color: '#64748b' }}>
+                  <p style={{ margin: '0 0 8px', fontSize: '15px', fontWeight: 600 }}>
+                    No languages found
+                  </p>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#94a3b8' }}>
+                    No language matching &ldquo;{langSearchQuery}&rdquo;
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setLangSearchQuery('')}
+                    style={{
+                      marginTop: '14px',
+                      backgroundColor: '#f1f5f9',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '6px 14px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      color: '#0f766e',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Clear Search
+                  </button>
+                </div>
+              ) : (
+                filteredLanguages.map((item: IndianLanguage) => {
+                  const isSelected = tempLangCode === item.code;
+                  return (
+                    <button
+                      key={item.code}
+                      type="button"
+                      onClick={() => setTempLangCode(item.code)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '12px 16px',
+                        borderRadius: '14px',
+                        border: isSelected ? '1.5px solid #0f766e' : '1px solid transparent',
+                        backgroundColor: isSelected ? 'rgba(15, 118, 110, 0.08)' : '#ffffff',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all 0.12s ease-in-out',
+                        outline: 'none',
+                        width: '100%'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.backgroundColor = '#f8fafc';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.backgroundColor = '#ffffff';
+                        }
+                      }}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{
+                          fontSize: '16px',
+                          fontWeight: isSelected ? 800 : 700,
+                          color: isSelected ? '#0f766e' : '#1e293b'
+                        }}>
+                          {item.nativeName}
+                        </span>
+                        <span style={{ fontSize: '13px', color: '#64748b', marginTop: '1px' }}>
+                          {item.englishName} · <span style={{ fontSize: '11px', color: '#94a3b8' }}>{item.script}</span>
+                        </span>
+                      </div>
+
+                      {/* Radio Check Indicator */}
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        border: isSelected ? '2px solid #0f766e' : '2px solid #cbd5e1',
+                        backgroundColor: isSelected ? '#0f766e' : '#ffffff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}>
+                        {isSelected && <Check size={13} color="#ffffff" strokeWidth={3} />}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer Actions (Cancel & Apply Language) */}
+            <div style={{
+              padding: '14px 20px 18px',
+              borderTop: '1px solid #f1f5f9',
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end',
+              backgroundColor: '#fafafa'
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowLanguageModal(false)}
+                style={{
+                  backgroundColor: '#ffffff',
+                  border: '1.5px solid #cbd5e1',
+                  color: '#475569',
+                  borderRadius: '12px',
+                  padding: '10px 18px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                {t.cancelBtn || 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (tempLangCode) {
+                    switchLanguage(tempLangCode);
+                    const applied = SCHEDULED_INDIAN_LANGUAGES.find(l => l.code === tempLangCode);
+                    setLangSuccessNotice(`Language changed to ${applied ? applied.englishName : tempLangCode}`);
+                    setTimeout(() => setLangSuccessNotice(null), 3000);
+                  }
+                  setShowLanguageModal(false);
+                }}
+                style={{
+                  backgroundColor: '#0f766e',
+                  border: 'none',
+                  color: '#ffffff',
+                  borderRadius: '12px',
+                  padding: '10px 22px',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(15, 118, 110, 0.25)'
+                }}
+              >
+                {t.applyLanguage || 'Apply Language'}
               </button>
             </div>
           </div>

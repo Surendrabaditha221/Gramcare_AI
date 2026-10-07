@@ -5,7 +5,7 @@ import { FirstAidTopic } from '../types/triage';
 import { useLanguage } from '../hooks/useLanguage';
 
 export const HealthGuidanceScreen: React.FC = () => {
-  const { lang } = useLanguage();
+  const { lang, t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTopic, setSelectedTopic] = useState<FirstAidTopic | null>(null);
 
@@ -34,14 +34,14 @@ export const HealthGuidanceScreen: React.FC = () => {
           }}
         >
           <ArrowLeft size={18} />
-          {lang === 'te' ? 'జాబితాకు వెళ్ళండి' : 'Back to Guidance Library'}
+          {t.backBtn || 'Back to Guidance Library'}
         </button>
 
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
             <span className="badge badge-low">
               <ShieldCheck size={14} />
-              {lang === 'te' ? '100% ఆఫ్‌లైన్ అందుబాటులో ఉంది' : '100% Offline Available'}
+              {t.offline ? `100% ${t.offline}` : '100% Offline Available'}
             </span>
           </div>
 
@@ -104,10 +104,10 @@ export const HealthGuidanceScreen: React.FC = () => {
       <div style={{ marginBottom: '16px' }}>
         <h2 style={{ fontSize: '22px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <BookOpen size={24} />
-          {lang === 'te' ? 'ప్రాథమిక చికిత్స గైడ్లు' : 'Offline First Aid & Guidance'}
+          {t.openOfflineTriage || 'Offline First Aid & Guidance'}
         </h2>
         <p style={{ fontSize: '14px', color: '#64748b', margin: 0 }}>
-          {lang === 'te' ? 'పాము కాటు, జ్వరం మరియు ORS వాడకం వివరాలు' : 'Essential medical first aid protocols accessible anytime without internet.'}
+          {t.symptomTriageHeroOfflineSub || 'Essential medical first aid protocols accessible anytime without internet.'}
         </p>
       </div>
 
@@ -118,7 +118,7 @@ export const HealthGuidanceScreen: React.FC = () => {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder={lang === 'te' ? 'గైడ్ వెతకండి (ఉదా: పాము కాటు, జ్వరం)...' : 'Search guides (e.g. snakebite, fever, ORS)...'}
+          placeholder={t.searchPlaceholder || 'Search guides...'}
           style={{
             width: '100%',
             padding: '12px 14px 12px 42px',

@@ -4,11 +4,32 @@ FastAPI application entry point (Firestore-only backend).
 """
 import os
 import sys
+import socket
 import logging
 from contextlib import asynccontextmanager
 
 # Ensure backend directory is in sys.path for relative imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# ── IPv4-preference patch ────────────────────────────────────────────────────
+# Google SDK clients (Firebase Admin gRPC, google-genai) prefer IPv6 by default.
+# On many Indian ISP networks, IPv6 routes to Google are advertised but unreliable,
+# causing stream-reading timeouts (wsarecv error on [2001:4860:4845:...]:443).
+# Patching getaddrinfo to return IPv4 results first (when available) fixes this.
+os.environ.setdefault("GRPC_DNS_RESOLVER", "native")
+_orig_getaddrinfo = socket.getaddrinfo
+def _ipv4_preferred_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    try:
+        results = _orig_getaddrinfo(host, port, family, type, proto, flags)
+    except Exception:
+        raise
+    if family == 0 and results:
+        v4 = [r for r in results if r[0] == socket.AF_INET]
+        v6 = [r for r in results if r[0] == socket.AF_INET6]
+        return (v4 + v6) if v4 else results
+    return results
+socket.getaddrinfo = _ipv4_preferred_getaddrinfo
+# ────────────────────────────────────────────────────────────────────────────
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -18,6 +39,11 @@ from dotenv import load_dotenv
 # Load environment variables from .env file if present
 load_dotenv()
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S"
+)
 logger = logging.getLogger("gramcare.main")
 
 @asynccontextmanager

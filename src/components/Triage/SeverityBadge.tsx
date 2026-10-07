@@ -1,27 +1,30 @@
 import React from 'react';
 import { AlertTriangle, AlertCircle, CheckCircle } from 'lucide-react';
 import { TriageSeverity } from '../../types/triage';
+import { useLanguage } from '../../hooks/useLanguage';
 
 interface SeverityBadgeProps {
   severity: TriageSeverity;
-  lang?: 'en' | 'te';
+  lang?: string;
 }
 
-export const SeverityBadge: React.FC<SeverityBadgeProps> = ({ severity, lang = 'en' }) => {
+export const SeverityBadge: React.FC<SeverityBadgeProps> = ({ severity }) => {
+  const { t } = useLanguage();
+
   switch (severity) {
     case 'urgent':
     case 'emergency':
       return (
         <span className="badge badge-urgent">
           <AlertCircle size={14} />
-          {lang === 'te' ? 'అత్యవసరం (Urgent)' : 'Urgent Attention Required'}
+          {t.severe || 'Urgent Attention Required'}
         </span>
       );
     case 'moderate':
       return (
         <span className="badge badge-moderate">
           <AlertTriangle size={14} />
-          {lang === 'te' ? 'మధ్యస్థ ప్రాధాన్యత' : 'Moderate Priority'}
+          {t.moderate || 'Moderate Priority'}
         </span>
       );
     case 'low':
@@ -29,7 +32,7 @@ export const SeverityBadge: React.FC<SeverityBadgeProps> = ({ severity, lang = '
       return (
         <span className="badge badge-low">
           <CheckCircle size={14} />
-          {lang === 'te' ? 'సాధారణం' : 'Mild Guidance'}
+          {t.mild || 'Mild Guidance'}
         </span>
       );
   }

@@ -1,6 +1,7 @@
 import { UserProfile, FamilyMember } from '../types/user';
 import { HealthRecord } from '../types/records';
 import { NotificationItem } from '../types/notification';
+import { ChatMessage } from '../types/chat';
 import { INITIAL_USER_PROFILE } from '../data/mockUser';
 import { calculateAgeFromDOB } from '../utils/dateUtils';
 
@@ -9,7 +10,32 @@ const getRecordsKey = (uid?: string) => uid ? `gramcare_records_${uid}` : 'gramc
 const getNotifsKey = (uid?: string) => uid ? `gramcare_notifications_${uid}` : 'gramcare_notifications_v2';
 const getActivePatientKey = (uid?: string) => uid ? `gramcare_active_patient_${uid}` : 'gramcare_active_patient_v2';
 
-export function deduplicateFamily(members: FamilyMember[]): FamilyMember[] {
+export function isUnwantedFamilyMember(member: Partial<FamilyMember>, primaryName?: string): boolean {
+  if (!member) return true;
+  const name = (member.fullName || '').trim().toLowerCase();
+  const rel = (member.relation || '').trim().toLowerCase();
+  const id = (member.id || '').trim().toLowerCase();
+
+  // 1. Primary user ID in family list
+  if (id === 'user_primary') return true;
+
+  // 2. Exact match for unwanted ghost profile "Baditha Surendra Other"
+  if (name === 'baditha surendra other') return true;
+
+  // 3. Ghost profile created when primary user is assigned relation 'Other', 'Self', or 'Myself'
+  if (name === 'baditha surendra' && (rel === 'other' || rel === 'self' || rel === 'myself' || !rel)) {
+    return true;
+  }
+
+  // 4. Any ghost family member that mirrors the primary user's exact name with relation 'Other'/'Self'
+  if (primaryName && name === primaryName.trim().toLowerCase() && (rel === 'other' || rel === 'self' || rel === 'myself' || !rel)) {
+    return true;
+  }
+
+  return false;
+}
+
+export function deduplicateFamily(members: FamilyMember[], primaryName?: string): FamilyMember[] {
   if (!members || !Array.isArray(members)) return [];
   const seenNames = new Set<string>();
   const seenIds = new Set<string>();
@@ -17,6 +43,7 @@ export function deduplicateFamily(members: FamilyMember[]): FamilyMember[] {
 
   for (const m of members) {
     if (!m || !m.fullName) continue;
+    if (isUnwantedFamilyMember(m, primaryName)) continue;
     const cleanName = m.fullName.trim().toLowerCase();
     const id = m.id;
 
@@ -40,11 +67,23 @@ export const localStorageService = {
       let rawProfile: UserProfile = data ? JSON.parse(data) : INITIAL_USER_PROFILE;
 
       const updatedPrimaryAge = rawProfile.dob ? calculateAgeFromDOB(rawProfile.dob) : rawProfile.age;
-      const deduplicated = deduplicateFamily(rawProfile.familyMembers || []);
+      const deduplicated = deduplicateFamily(rawProfile.familyMembers || [], rawProfile.fullName);
       const updatedFamily = deduplicated.map(member => ({
         ...member,
         age: member.dob ? calculateAgeFromDOB(member.dob) : member.age
       }));
+
+      // If raw stored profile contained unwanted ghost entries, purge immediately
+      if (rawProfile.familyMembers && rawProfile.familyMembers.length !== updatedFamily.length) {
+        try {
+          const toSave = {
+            ...rawProfile,
+            age: updatedPrimaryAge,
+            familyMembers: updatedFamily
+          };
+          localStorage.setItem(key, JSON.stringify(toSave));
+        } catch {}
+      }
 
       return {
         ...rawProfile,
@@ -60,7 +99,7 @@ export const localStorageService = {
     try {
       const key = getProfileKey(uid);
       const updatedPrimaryAge = profile.dob ? calculateAgeFromDOB(profile.dob) : profile.age;
-      const deduplicated = deduplicateFamily(profile.familyMembers || []);
+      const deduplicated = deduplicateFamily(profile.familyMembers || [], profile.fullName);
       const updatedFamily = deduplicated.map(member => ({
         ...member,
         age: member.dob ? calculateAgeFromDOB(member.dob) : member.age
@@ -79,13 +118,16 @@ export const localStorageService = {
 
   addFamilyMember(member: FamilyMember, uid?: string): UserProfile {
     const profile = this.getUserProfile(uid);
+    if (isUnwantedFamilyMember(member, profile.fullName)) {
+      return profile;
+    }
     const calculatedMember = {
       ...member,
       age: member.dob ? calculateAgeFromDOB(member.dob) : member.age
     };
     const updated = {
       ...profile,
-      familyMembers: deduplicateFamily([...(profile.familyMembers || []), calculatedMember])
+      familyMembers: deduplicateFamily([...(profile.familyMembers || []), calculatedMember], profile.fullName)
     };
     this.saveUserProfile(updated, uid);
     return updated;
@@ -184,11 +226,53 @@ export const localStorageService = {
   },
 
   getActivePatientId(uid?: string): string {
-    return localStorage.getItem(getActivePatientKey(uid)) || 'user_primary';
+    const active = localStorage.getItem(getActivePatientKey(uid)) || 'user_primary';
+    if (active === 'user_primary') return 'user_primary';
+    const profile = this.getUserProfile(uid);
+    const exists = (profile.familyMembers || []).some(f => f.id === active);
+    if (!exists) {
+      try {
+        localStorage.setItem(getActivePatientKey(uid), 'user_primary');
+      } catch {}
+      return 'user_primary';
+    }
+    return active;
   },
 
-  setActivePatientId(id: string, uid?: string): void {
-    localStorage.setItem(getActivePatientKey(uid), id);
+  setActivePatientId(patientId: string, uid?: string): void {
+    try {
+      localStorage.setItem(getActivePatientKey(uid), patientId);
+    } catch {}
+  },
+
+  getChatMessages(patientId?: string, uid?: string, conversationId?: string): ChatMessage[] | null {
+    try {
+      const convSuffix = conversationId ? `_${conversationId}` : '';
+      const key = `gramcare_chat_${uid || 'anon'}_${patientId || 'default'}${convSuffix}`;
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  saveChatMessages(messages: ChatMessage[], patientId?: string, uid?: string, conversationId?: string): void {
+    try {
+      const convSuffix = conversationId ? `_${conversationId}` : '';
+      const key = `gramcare_chat_${uid || 'anon'}_${patientId || 'default'}${convSuffix}`;
+      localStorage.setItem(key, JSON.stringify(messages));
+    } catch {}
+  },
+
+  clearChatMessages(patientId?: string, uid?: string, conversationId?: string): void {
+    try {
+      const convSuffix = conversationId ? `_${conversationId}` : '';
+      const key = `gramcare_chat_${uid || 'anon'}_${patientId || 'default'}${convSuffix}`;
+      localStorage.removeItem(key);
+      if (conversationId && (conversationId === 'conv_default' || conversationId === 'default')) {
+        localStorage.removeItem(`gramcare_chat_${uid || 'anon'}_${patientId || 'default'}`);
+      }
+    } catch {}
   },
 
   clearAllOfflineData(): void {

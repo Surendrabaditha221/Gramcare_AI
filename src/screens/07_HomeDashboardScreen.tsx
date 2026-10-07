@@ -7,7 +7,9 @@ import {
   History,
   Hospital,
   Sparkles,
-  AlertTriangle
+  AlertTriangle,
+  ShieldAlert,
+  BellRing
 } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -70,6 +72,94 @@ export const HomeDashboardScreen: React.FC<HomeDashboardScreenProps> = ({
         </div>
       </div>
 
+      {/* ───────────────────────────────────────────────────────────── */}
+      {/* PROMINENT ONE-TAP EMERGENCY SOS CARD                          */}
+      {/* ───────────────────────────────────────────────────────────── */}
+      <div
+        className="card"
+        style={{
+          background: 'linear-gradient(135deg, #fef2f2 0%, #fff1f2 100%)',
+          border: '2px solid #f87171',
+          borderRadius: '20px',
+          padding: '20px',
+          margin: 0,
+          boxShadow: '0 10px 25px -5px rgba(220, 38, 38, 0.16)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '14px'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <div>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              backgroundColor: '#fee2e2',
+              color: '#b91c1c',
+              border: '1px solid #fca5a5',
+              padding: '4px 10px',
+              borderRadius: '20px',
+              fontSize: '12px',
+              fontWeight: 800,
+              letterSpacing: '0.04em',
+              marginBottom: '6px'
+            }}>
+              <ShieldAlert size={14} color="#dc2626" />
+              <span>🚨 EMERGENCY SOS</span>
+            </div>
+            <h2 style={{ margin: '0 0 4px 0', fontSize: '22px', color: '#991b1b', fontWeight: 900 }}>
+              Alert My Family
+            </h2>
+            <p style={{ margin: 0, fontSize: '14px', color: '#475569', fontWeight: 500, lineHeight: 1.4 }}>
+              Send an emergency alert to all your saved emergency contacts.
+            </p>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            backgroundColor: '#ffffff',
+            border: '1px solid #fecaca',
+            padding: '6px 12px',
+            borderRadius: '12px',
+            fontSize: '12px',
+            color: '#7f1d1d',
+            fontWeight: 600
+          }}>
+            <Users size={14} color="#dc2626" />
+            <span>Notifies All Active Contacts</span>
+          </div>
+        </div>
+
+        <div>
+          <button
+            type="button"
+            id="home-btn-send-emergency-alert"
+            onClick={onOpenEmergency}
+            className="btn btn-emergency"
+            style={{
+              width: '100%',
+              fontSize: '18px',
+              fontWeight: 800,
+              padding: '16px 20px',
+              borderRadius: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              cursor: 'pointer',
+              boxShadow: '0 4px 14px rgba(220, 38, 38, 0.35)',
+              letterSpacing: '0.02em'
+            }}
+          >
+            <BellRing size={22} />
+            <span>🚨 SEND EMERGENCY ALERT</span>
+          </button>
+        </div>
+      </div>
+
       {/* Patient Selector */}
       <PatientSelector
         profile={profile}
@@ -103,12 +193,10 @@ export const HomeDashboardScreen: React.FC<HomeDashboardScreenProps> = ({
             <AlertTriangle size={22} color="#c2410c" style={{ flexShrink: 0 }} />
             <div>
               <h4 style={{ margin: 0, fontSize: '14px', color: '#9a3412', fontWeight: 700 }}>
-                {lang === 'te' ? 'గ్రామ్‌కేర్ సేవ తాత్కాలికంగా అందుబాటులో లేదు' : 'GramCare service is temporarily unavailable.'}
+                {t.backendUnavailableTitle}
               </h4>
               <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#c2410c', lineHeight: 1.4 }}>
-                {lang === 'te'
-                  ? 'మీ పరికరం ఇంటర్నెట్‌కి కనెక్ట్ చేయబడింది, కానీ గ్రామ్‌కేర్ బ్యాకెండ్ సేవ అందుబాటులో లేదు. ఆఫ్‌లైన్ టూల్స్ పనిచేస్తాయి.'
-                  : 'Your device is connected to the internet, but GramCare backend services are currently unreachable. Offline emergency tools remain available.'}
+                {t.backendUnavailableSub}
               </p>
             </div>
           </div>
@@ -128,7 +216,7 @@ export const HomeDashboardScreen: React.FC<HomeDashboardScreenProps> = ({
               whiteSpace: 'nowrap'
             }}
           >
-            {isRetrying ? (lang === 'te' ? 'పరిశీలిస్తోంది...' : 'Checking...') : (lang === 'te' ? 'మళ్ళీ ప్రయత్నించండి' : 'Retry Connection')}
+            {isRetrying ? t.loading : t.retryBtn}
           </button>
         </div>
       )}
@@ -167,17 +255,11 @@ export const HomeDashboardScreen: React.FC<HomeDashboardScreenProps> = ({
           </div>
 
           <h2 style={{ color: '#ffffff', fontSize: '22px', marginBottom: '8px' }}>
-            {lang === 'te' ? 'లక్షణాల తనిఖీ & ఆరోగ్య మార్గదర్శకత్వం' : 'Symptom Triage & AI Guidance'}
+            {t.symptomTriageHeroTitle}
           </h2>
 
           <p style={{ fontSize: '14px', color: isOnline ? '#ccfbf1' : '#e2e8f0', marginBottom: '20px', lineHeight: 1.5, maxWidth: '800px' }}>
-            {isOnline
-              ? (lang === 'te'
-                  ? 'AI-సహాయక లక్షణ మార్గదర్శకత్వం మరియు ప్రాథమిక చికిత్స సమాచారం అందుబాటులో ఉన్నాయి.'
-                  : 'AI-assisted symptom guidance, document scanning, and first aid recommendations are ready for your family.')
-              : (lang === 'te'
-                  ? 'ఆఫ్‌లైన్ ప్రాథమిక చికిత్స గైడ్లు మరియు 108 అత్యవసర సేవలు ఇంటర్నెట్ లేకుండా సిద్ధంగా ఉన్నాయి.'
-                  : 'Offline first aid guides & 108 emergency calling ready without internet connection.')}
+            {isOnline ? t.symptomTriageHeroOnlineSub : t.symptomTriageHeroOfflineSub}
           </p>
         </div>
 
@@ -198,9 +280,7 @@ export const HomeDashboardScreen: React.FC<HomeDashboardScreenProps> = ({
               boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
             }}
           >
-            {isOnline
-              ? (lang === 'te' ? 'ఆన్‌లైన్ ఫస్ట్ ఎయిడ్ తెరవండి' : 'Open Online First Aid')
-              : (lang === 'te' ? 'ఆఫ్‌లైన్ ఫస్ట్ ఎయిడ్ తెరవండి' : 'Open Offline First Aid')}
+            {isOnline ? t.openOnlineTriage : t.openOfflineTriage}
           </button>
         </div>
       </div>
@@ -208,7 +288,7 @@ export const HomeDashboardScreen: React.FC<HomeDashboardScreenProps> = ({
       {/* Main Feature Cards Grid (1 col mobile, 2 col tablet, 3 col desktop) */}
       <div>
         <h3 style={{ fontSize: '18px', color: '#0f766e', marginBottom: '14px', fontWeight: 700 }}>
-          {lang === 'te' ? 'సేవలు & సాధనాలు' : 'Services & Healthcare Tools'}
+          {t.servicesTools}
         </h3>
 
         <div className="grid-responsive-3">

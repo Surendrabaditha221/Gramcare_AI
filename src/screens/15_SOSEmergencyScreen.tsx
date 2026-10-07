@@ -1,16 +1,18 @@
 import React from 'react';
-import { PhoneCall, ShieldAlert, MapPin, HeartHandshake, UserCheck, ArrowLeft } from 'lucide-react';
+import { PhoneCall, ShieldAlert, MapPin, HeartHandshake, UserCheck, ArrowLeft, BellRing } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { MOCK_EMERGENCY_HOTLINES } from '../data/mockHealthcare';
 
 interface SOSEmergencyScreenProps {
   onBack: () => void;
   onNavigateToNearby: () => void;
+  onTriggerSOSAlert?: () => void;
 }
 
 export const SOSEmergencyScreen: React.FC<SOSEmergencyScreenProps> = ({
   onBack,
-  onNavigateToNearby
+  onNavigateToNearby,
+  onTriggerSOSAlert
 }) => {
   const { lang, t } = useLanguage();
 
@@ -46,7 +48,7 @@ export const SOSEmergencyScreen: React.FC<SOSEmergencyScreenProps> = ({
       </button>
 
       {/* High-Urgency Emergency Header */}
-      <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '20px' }}>
         <div style={{
           backgroundColor: '#dc2626',
           borderRadius: '50%',
@@ -66,27 +68,77 @@ export const SOSEmergencyScreen: React.FC<SOSEmergencyScreenProps> = ({
         </h1>
 
         <p style={{ color: '#b91c1c', fontSize: '14px', margin: 0, fontWeight: 600 }}>
-          Tap below for instant emergency hotline connection
+          Notify registered family members and connect to Indian emergency helplines
         </p>
       </div>
 
-      {/* Primary 108 Emergency Dialing Action */}
+      {/* Family Push SOS Alert Action */}
+      {onTriggerSOSAlert && (
+        <button
+          type="button"
+          onClick={onTriggerSOSAlert}
+          className="btn btn-emergency"
+          style={{
+            fontSize: '20px',
+            padding: '18px',
+            borderRadius: '16px',
+            marginBottom: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '12px',
+            width: '100%',
+            cursor: 'pointer',
+            boxShadow: '0 0 20px rgba(220, 38, 38, 0.5)'
+          }}
+        >
+          <BellRing size={26} />
+          <span>Broadcast SOS to Family Members</span>
+        </button>
+      )}
+
+      {/* Primary 112 National Emergency Dialing Action */}
+      <a
+        href="tel:112"
+        style={{
+          backgroundColor: '#991b1b',
+          color: '#ffffff',
+          fontSize: '18px',
+          padding: '16px',
+          borderRadius: '16px',
+          marginBottom: '14px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '12px',
+          textDecoration: 'none',
+          fontWeight: 800
+        }}
+      >
+        <PhoneCall size={24} />
+        <span>DIAL 112 NATIONAL EMERGENCY</span>
+      </a>
+
+      {/* Primary 108 Emergency Ambulance Action */}
       <a
         href="tel:108"
-        className="btn btn-emergency"
         style={{
-          fontSize: '22px',
-          padding: '18px',
+          backgroundColor: '#15803d',
+          color: '#ffffff',
+          fontSize: '18px',
+          padding: '16px',
           borderRadius: '16px',
           marginBottom: '20px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: '12px'
+          gap: '12px',
+          textDecoration: 'none',
+          fontWeight: 800
         }}
       >
-        <PhoneCall size={28} />
-        <span>{t.callEmergencyServices}</span>
+        <PhoneCall size={24} />
+        <span>DIAL 108 FREE AMBULANCE</span>
       </a>
 
       {/* Other Official Hotlines List */}

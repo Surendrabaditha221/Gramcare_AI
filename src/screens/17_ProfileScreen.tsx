@@ -1,19 +1,22 @@
 import React, { useState } from 'react';
-import { User, Calendar, MapPin, Edit, Users, Shield, Settings, LogOut, Trash2, AlertTriangle, Stethoscope, PlusCircle } from 'lucide-react';
+import { User, Calendar, MapPin, Edit, Users, Shield, Settings, LogOut, Trash2, AlertTriangle, Stethoscope, PlusCircle, CheckCircle2 } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { UserProfile, FamilyMember } from '../types/user';
 import { EditFamilyMemberModal } from '../components/Patient/EditFamilyMemberModal';
 import { EditMedicalInfoModal } from '../components/Patient/EditMedicalInfoModal';
+import { EditPersonalProfileModal } from '../components/Patient/EditPersonalProfileModal';
+import { EmergencyContactsSection } from '../components/Emergency/EmergencyContactsSection';
 import { calculateAgeFromDOB, formatDOBForDisplay } from '../utils/dateUtils';
+import { isUnwantedFamilyMember } from '../services/localStorageService';
 
 interface ProfileScreenProps {
   profile: UserProfile;
-  onEditProfile: () => void;
+  onEditProfile?: () => void;
   onNavigateToSettings: () => void;
   onLogout?: () => void;
   onUpdateFamilyMember?: (member: FamilyMember) => void;
   onRemoveFamilyMember?: (id: string) => void;
-  onUpdateProfile?: (updatedProfile: UserProfile) => void;
+  onUpdateProfile?: (updatedProfile: UserProfile) => Promise<void> | void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -26,6 +29,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onUpdateProfile
 }) => {
   const { lang, t } = useLanguage();
+  const [isEditingPersonalProfile, setIsEditingPersonalProfile] = useState<boolean>(false);
+  const [profileSuccessNotice, setProfileSuccessNotice] = useState<string | null>(null);
   const [editingFamilyMember, setEditingFamilyMember] = useState<FamilyMember | null>(null);
   const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
   const [deletingMemberName, setDeletingMemberName] = useState<string>('');
@@ -48,6 +53,27 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   return (
     <div>
+      {/* Profile Success Toast Banner */}
+      {profileSuccessNotice && (
+        <div style={{
+          backgroundColor: '#f0fdf4',
+          color: '#15803d',
+          border: '1px solid #bbf7d0',
+          borderRadius: '14px',
+          padding: '12px 16px',
+          marginBottom: '16px',
+          fontSize: '14px',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.03)'
+        }}>
+          <CheckCircle2 size={18} color="#16a34a" />
+          <span>{profileSuccessNotice}</span>
+        </div>
+      )}
+
       {/* Top Header Card */}
       <div className="card text-center" style={{
         background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 100%)',
@@ -83,7 +109,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <button
-            onClick={onEditProfile}
+            onClick={() => setIsEditingPersonalProfile(true)}
             style={{
               backgroundColor: '#ffffff',
               color: '#0f766e',
@@ -156,7 +182,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               Personal Details
             </h3>
             <button
-              onClick={onEditProfile}
+              onClick={() => setIsEditingPersonalProfile(true)}
               style={{ fontSize: '12px', fontWeight: 700, color: '#0f766e', background: 'none', border: 'none', cursor: 'pointer' }}
             >
               Edit
@@ -188,10 +214,45 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               </strong>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
               <span style={{ fontSize: '14px', color: '#64748b' }}>Marital Status:</span>
               <strong style={{ fontSize: '15px', color: '#1e293b', textTransform: 'capitalize' }}>
                 {profile.maritalStatus ? profile.maritalStatus.replace('_', ' ') : 'N/A'}
+              </strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+              <span style={{ fontSize: '14px', color: '#64748b' }}>Phone Number:</span>
+              <strong style={{ fontSize: '14px', color: profile.phone ? '#1e293b' : '#94a3b8' }}>
+                {profile.phone || 'Not provided'}
+              </strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+              <span style={{ fontSize: '14px', color: '#64748b' }}>Email:</span>
+              <strong style={{ fontSize: '14px', color: profile.email ? '#1e293b' : '#94a3b8' }}>
+                {profile.email || 'Not provided'}
+              </strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+              <span style={{ fontSize: '14px', color: '#64748b' }}>Address / Village:</span>
+              <strong style={{ fontSize: '14px', color: '#1e293b', textAlign: 'right', maxWidth: '60%' }}>
+                {profile.address || profile.village || 'Not provided'}
+              </strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
+              <span style={{ fontSize: '14px', color: '#64748b' }}>District &amp; State:</span>
+              <strong style={{ fontSize: '14px', color: '#1e293b' }}>
+                {profile.district}{profile.state ? `, ${profile.state}` : ''}
+              </strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: '14px', color: '#64748b' }}>PIN Code:</span>
+              <strong style={{ fontSize: '14px', color: profile.pincode ? '#1e293b' : '#94a3b8' }}>
+                {profile.pincode || 'Not provided'}
               </strong>
             </div>
           </div>
@@ -267,18 +328,24 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
         {/* Card 3: Family Profiles */}
         <div className="card" style={{ margin: 0 }}>
-          <h3 style={{ margin: '0 0 12px 0', fontSize: '17px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Users size={20} />
-            Family Profiles ({profile.familyMembers.length})
-          </h3>
+          {(() => {
+            const validFamilyMembers = (profile.familyMembers || []).filter(
+              (fam) => !isUnwantedFamilyMember(fam, profile.fullName)
+            );
+            return (
+              <>
+                <h3 style={{ margin: '0 0 12px 0', fontSize: '17px', color: '#0f766e', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Users size={20} />
+                  Family Profiles ({validFamilyMembers.length})
+                </h3>
 
-          {profile.familyMembers.length === 0 ? (
-            <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
-              No family members added yet. Click "+ Add Family" in Patient Context to add your relatives.
-            </p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {profile.familyMembers.map((fam) => (
+                {validFamilyMembers.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>
+                    No family members added yet. Click "+ Add Family" in Patient Context to add your relatives.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {validFamilyMembers.map((fam) => (
                 <div key={fam.id} style={{
                   backgroundColor: '#f8fafc',
                   border: '1px solid #e2e8f0',
@@ -341,8 +408,30 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               ))}
             </div>
           )}
-        </div>
-      </div>
+        </>
+      );
+    })()}
+  </div>
+</div>
+
+      {/* Emergency SOS Contacts & Push Notifications Section */}
+      <EmergencyContactsSection />
+
+      {/* Edit Personal Profile Modal */}
+      {isEditingPersonalProfile && (
+        <EditPersonalProfileModal
+          isOpen={isEditingPersonalProfile}
+          profile={profile}
+          onClose={() => setIsEditingPersonalProfile(false)}
+          onSave={async (updated) => {
+            if (onUpdateProfile) {
+              await onUpdateProfile(updated);
+            }
+            setProfileSuccessNotice('Personal profile updated successfully!');
+            setTimeout(() => setProfileSuccessNotice(null), 3500);
+          }}
+        />
+      )}
 
       {/* Edit Medical Info Modal */}
       {isEditingMedicalInfo && (

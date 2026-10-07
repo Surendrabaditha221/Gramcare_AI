@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { User, Users, Plus, Check, AlertCircle, X } from 'lucide-react';
 import { UserProfile, FamilyMember, GenderOption, RelationshipOption } from '../../types/user';
 import { calculateAgeFromDOB, isValidDOB, getLocalTodayISO } from '../../utils/dateUtils';
+import { isUnwantedFamilyMember } from '../../services/localStorageService';
 
 interface PatientSelectorProps {
   profile: UserProfile;
   activePatientId: string;
   onSelectPatient: (id: string) => void;
   onAddFamilyMember: (member: FamilyMember) => void;
-  lang: 'en' | 'te';
+  lang?: string;
 }
 
 const RELATIONSHIP_OPTIONS: RelationshipOption[] = [
@@ -165,33 +166,35 @@ export const PatientSelector: React.FC<PatientSelectorProps> = ({
         </button>
 
         {/* Family Members */}
-        {profile.familyMembers.map((member) => {
-          const isActive = activePatientId === member.id;
-          return (
-            <button
-              key={member.id}
-              type="button"
-              onClick={() => onSelectPatient(member.id)}
-              style={{
-                backgroundColor: isActive ? '#0f766e' : '#f8fafc',
-                color: isActive ? '#ffffff' : '#334155',
-                border: `1.5px solid ${isActive ? '#0f766e' : '#cbd5e1'}`,
-                borderRadius: '20px',
-                padding: '6px 14px',
-                fontSize: '13px',
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-                cursor: 'pointer'
-              }}
-            >
-              <span>{member.fullName} ({member.relation})</span>
-              {isActive && <Check size={14} />}
-            </button>
-          );
-        })}
+        {profile.familyMembers
+          .filter((member) => !isUnwantedFamilyMember(member, profile.fullName))
+          .map((member) => {
+            const isActive = activePatientId === member.id;
+            return (
+              <button
+                key={member.id}
+                type="button"
+                onClick={() => onSelectPatient(member.id)}
+                style={{
+                  backgroundColor: isActive ? '#0f766e' : '#f8fafc',
+                  color: isActive ? '#ffffff' : '#334155',
+                  border: `1.5px solid ${isActive ? '#0f766e' : '#cbd5e1'}`,
+                  borderRadius: '20px',
+                  padding: '6px 14px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer'
+                }}
+              >
+                <span>{member.fullName}{member.relation ? ` (${member.relation})` : ''}</span>
+                {isActive && <Check size={14} />}
+              </button>
+            );
+          })}
       </div>
 
       {/* Add Family Modal */}

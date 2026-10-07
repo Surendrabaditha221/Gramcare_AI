@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { localStorageService, deduplicateFamily } from '../services/localStorageService';
+import { localStorageService, deduplicateFamily, isUnwantedFamilyMember } from '../services/localStorageService';
 import { indexedDbService } from '../services/indexedDbService';
-import { fetchPatientsBackend, savePatientBackend, fetchUserProfileBackend, saveUserProfileBackend } from '../services/api';
+import { fetchPatientsBackend, savePatientBackend, deletePatientBackend, fetchUserProfileBackend, saveUserProfileBackend } from '../services/api';
 import { UserProfile, FamilyMember } from '../types/user';
 import { calculateAgeFromDOB } from '../utils/dateUtils';
 import { useAuth } from './AuthContext';
@@ -29,7 +29,7 @@ interface PatientContextType {
   activePatientAge: number;
   isLoading: boolean;
   selectPatient: (id: string) => void;
-  updatePrimaryProfile: (updatedProfile: UserProfile) => void;
+  updatePrimaryProfile: (updatedProfile: UserProfile) => Promise<void> | void;
   addFamilyMember: (member: FamilyMember) => void;
   updateFamilyMember: (member: FamilyMember) => void;
   removeFamilyMember: (memberId: string) => void;
@@ -66,9 +66,14 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
             mongoProfile.isOnboardingCompleted ||
             (mongoProfile.dob && (mongoProfile.fullName || mongoProfile.displayName))
           );
+          const effectiveFamily = deduplicateFamily(
+            mongoProfile.familyMembers || profile.familyMembers || [],
+            mongoProfile.fullName || profile.fullName
+          );
           const merged: UserProfile = {
             ...profile,
             ...mongoProfile,
+            familyMembers: effectiveFamily,
             profileCompleted: isCompleted,
             isProfileCompleted: isCompleted,
             isOnboardingCompleted: isCompleted
@@ -79,28 +84,30 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } else {
           const backendPatients = await fetchPatientsBackend(userUid);
           if (backendPatients && backendPatients.length > 0) {
-            const primary = backendPatients.find((p: any) => p.id === 'user_primary' || p.relation === 'Self' || p.userId === userUid);
-            if (primary) {
-              const family = backendPatients.filter(p => p.id !== primary.id);
-              const deduplicated = deduplicateFamily([...(profile.familyMembers || []), ...(family as any)]);
-              const isCompleted = Boolean(
-                localStorage.getItem('gramcare_onboarding_completed') === 'true' ||
-                primary.profileCompleted ||
-                primary.isProfileCompleted ||
-                primary.isOnboardingCompleted ||
-                (primary.dob && (primary.fullName || primary.displayName))
-              );
-              const merged: UserProfile = {
-                ...profile,
-                ...primary,
-                familyMembers: deduplicated,
-                profileCompleted: isCompleted,
-                isProfileCompleted: isCompleted,
-                isOnboardingCompleted: isCompleted
-              };
-              setProfile(merged);
-              localStorageService.saveUserProfile(merged, userUid);
+            // Delete any ghost/unwanted entries stored on backend
+            for (const p of backendPatients) {
+              if (p.id && isUnwantedFamilyMember(p as any, profile.fullName)) {
+                deletePatientBackend(p.id).catch(() => {});
+              }
             }
+            const primary = backendPatients.find((p: any) => p.id === 'user_primary' || p.relation === 'Self' || p.relation === 'Myself');
+            const family = backendPatients.filter((p: any) => p.id !== 'user_primary' && p.relation !== 'Self' && p.relation !== 'Myself' && (!primary || p.id !== primary.id));
+            const deduplicated = deduplicateFamily([...(profile.familyMembers || []), ...(family as any)], profile.fullName);
+            const isCompleted = Boolean(
+              localStorage.getItem('gramcare_onboarding_completed') === 'true' ||
+              (primary && (primary.profileCompleted || primary.isProfileCompleted || primary.isOnboardingCompleted || (primary.dob && (primary.fullName || primary.displayName)))) ||
+              (profile.dob && profile.fullName)
+            );
+            const merged: UserProfile = {
+              ...profile,
+              ...(primary || {}),
+              familyMembers: deduplicated,
+              profileCompleted: isCompleted,
+              isProfileCompleted: isCompleted,
+              isOnboardingCompleted: isCompleted
+            };
+            setProfile(merged);
+            localStorageService.saveUserProfile(merged, userUid);
           }
         }
       } catch (e) {
@@ -117,7 +124,7 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorageService.setActivePatientId(id, userUid);
   };
 
-  const updatePrimaryProfile = (updatedProfile: UserProfile) => {
+  const updatePrimaryProfile = async (updatedProfile: UserProfile): Promise<void> => {
     const recalculated: UserProfile = {
       ...updatedProfile,
       age: updatedProfile.dob ? calculateAgeFromDOB(updatedProfile.dob) : updatedProfile.age,
@@ -138,15 +145,17 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     }
 
-    saveUserProfileBackend({ ...recalculated, uid: userUid, userId: userUid, email: userEmail }).catch(err => {
+    try {
+      await saveUserProfileBackend({ ...recalculated, uid: userUid, userId: userUid, email: userEmail });
+    } catch (err) {
       console.warn('Backend user profile update deferred to offline sync:', err);
-    });
-    savePatientBackend({ ...recalculated, userId: userUid }, userUid).catch(err => {
-      console.warn('Backend patient update deferred to offline sync:', err);
-    });
+    }
   };
 
   const addFamilyMember = (member: FamilyMember) => {
+    if (isUnwantedFamilyMember(member, profile.fullName)) {
+      return;
+    }
     const updated = localStorageService.addFamilyMember(member, userUid);
     setProfile(updated);
     selectPatient(member.id);
@@ -157,6 +166,9 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateFamilyMember = (member: FamilyMember) => {
+    if (isUnwantedFamilyMember(member, profile.fullName)) {
+      return;
+    }
     const updated = localStorageService.updateFamilyMember(member, userUid);
     setProfile(updated);
 
@@ -171,6 +183,10 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (activePatientId === memberId) {
       selectPatient('user_primary');
     }
+
+    deletePatientBackend(memberId).catch(err => {
+      console.warn('Backend patient delete deferred:', err);
+    });
   };
 
   let activePatient: ActivePatientContext = {
@@ -188,7 +204,7 @@ export const PatientProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   if (activePatientId !== 'user_primary') {
-    const familyMember = (profile.familyMembers || []).find(f => f.id === activePatientId);
+    const familyMember = (profile.familyMembers || []).find(f => f.id === activePatientId && !isUnwantedFamilyMember(f, profile.fullName));
     if (familyMember) {
       activePatient = {
         id: familyMember.id,

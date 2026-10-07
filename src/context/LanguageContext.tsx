@@ -1,26 +1,34 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { localStorageService } from '../services/localStorageService';
 import { saveUserProfileBackend } from '../services/api';
-import { TRANSLATIONS, TranslationDict } from '../data/translations';
+import { getTranslation, TranslationDict } from '../data/translations';
 import { SCHEDULED_INDIAN_LANGUAGES, IndianLanguage } from '../data/indianLanguages';
 import { useAuth } from './AuthContext';
 
-interface LanguageContextType {
-  lang: 'en' | 'te';
+export interface LanguageContextType {
+  lang: string;
   selectedLanguageCode: string;
   selectedLanguageMeta: IndianLanguage;
   switchLanguage: (code: string) => void;
   t: TranslationDict;
+  isRTL: boolean;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, updateUserLanguage } = useAuth();
+
+  // Initialize from user preference or local storage or default 'en'
   const [selectedLanguageCode, setSelectedLanguageCode] = useState<string>(() => {
-    return user?.preferredLanguage || user?.language || localStorageService.getPreferredLanguage();
+    const stored = localStorageService.getPreferredLanguage();
+    if (stored) return stored;
+    const userLang = user?.preferredLanguage || user?.language;
+    if (userLang) return userLang;
+    return 'en';
   });
 
+  // Sync if user preference in AuthContext updates
   useEffect(() => {
     const userLang = user?.preferredLanguage || user?.language;
     if (userLang && userLang !== selectedLanguageCode) {
@@ -29,36 +37,63 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [user?.preferredLanguage, user?.language]);
 
+  // Persist locally
   useEffect(() => {
-    localStorageService.savePreferredLanguage(selectedLanguageCode);
+    if (selectedLanguageCode) {
+      localStorageService.savePreferredLanguage(selectedLanguageCode);
+      const isRTL = ['ur', 'ks', 'sd'].includes(selectedLanguageCode);
+      if (typeof document !== 'undefined') {
+        document.documentElement.lang = selectedLanguageCode;
+        document.documentElement.dir = isRTL ? 'rtl' : 'ltr';
+      }
+    }
   }, [selectedLanguageCode]);
 
   const switchLanguage = (newLang: string) => {
-    setSelectedLanguageCode(newLang);
-    localStorageService.savePreferredLanguage(newLang);
+    const normalized = newLang ? newLang.trim().toLowerCase() : 'en';
+    setSelectedLanguageCode(normalized);
+    localStorageService.savePreferredLanguage(normalized);
     localStorage.setItem('gramcare_language_selected', 'true');
+    
+    // Update HTML attributes immediately
+    const isRTL = ['ur', 'ks', 'sd'].includes(normalized);
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = normalized;
+      document.documentElement.dir = isRTL ? 'rtl' : 'ltr';
+    }
+
     if (user) {
-      updateUserLanguage(newLang).catch(() => {});
+      updateUserLanguage(normalized).catch(() => {});
     } else {
-      saveUserProfileBackend({ preferredLanguage: newLang }).catch(() => {});
+      saveUserProfileBackend({ preferredLanguage: normalized }).catch(() => {});
     }
   };
 
-  const lang: 'en' | 'te' = selectedLanguageCode === 'te' ? 'te' : 'en';
-  const t: TranslationDict = (TRANSLATIONS as Record<string, TranslationDict>)[selectedLanguageCode] || TRANSLATIONS[lang] || TRANSLATIONS.en;
+  const selectedLanguageMeta = useMemo(() => {
+    return (
+      SCHEDULED_INDIAN_LANGUAGES.find(l => l.code === selectedLanguageCode) ||
+      SCHEDULED_INDIAN_LANGUAGES[0]
+    );
+  }, [selectedLanguageCode]);
 
-  const selectedLanguageMeta =
-    SCHEDULED_INDIAN_LANGUAGES.find(l => l.code === selectedLanguageCode) ||
-    SCHEDULED_INDIAN_LANGUAGES[0];
+  // Reactive translation dictionary with seamless English fallback for all keys
+  const t = useMemo(() => {
+    return getTranslation(selectedLanguageCode);
+  }, [selectedLanguageCode]);
+
+  const isRTL = useMemo(() => {
+    return ['ur', 'ks', 'sd'].includes(selectedLanguageCode);
+  }, [selectedLanguageCode]);
 
   return (
     <LanguageContext.Provider
       value={{
-        lang,
+        lang: selectedLanguageCode,
         selectedLanguageCode,
         selectedLanguageMeta,
         switchLanguage,
-        t
+        t,
+        isRTL
       }}
     >
       {children}

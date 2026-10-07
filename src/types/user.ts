@@ -54,6 +54,9 @@ export interface UserProfile {
   weightKg?: number;
   village: string;
   district: string;
+  state?: string;
+  address?: string;
+  pincode?: string;
   bloodGroup?: string;
   phone?: string;
   emergencyContactPhone?: string;

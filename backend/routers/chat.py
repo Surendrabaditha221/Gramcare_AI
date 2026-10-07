@@ -8,7 +8,7 @@ Strictly scopes all operations to the authenticated user's Firebase UID.
 from typing import Optional, Dict, Any, List
 from fastapi import APIRouter, Query, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from schemas import ChatRequest, ChatResponse
+from schemas import ChatRequest, ChatResponse, RenameConversationRequest, CreateConversationRequest
 from services.gemini_service import GeminiService
 from services import firestore_chat_service, firestore_family_service, firestore_user_service
 from routers.auth import get_current_user_from_token
@@ -103,7 +103,8 @@ async def chat_companion(
         patient_name=request.patient_name or patient_ctx.get("name"),
         language=target_lang,
         history=history_payload,
-        patient_context=patient_ctx
+        patient_context=patient_ctx,
+        location_context=request.location_context
     )
 
     # Save assistant response to Firestore
@@ -158,7 +159,8 @@ async def chat_companion_stream(
             patient_name=request.patient_name or patient_ctx.get("name"),
             language=target_lang,
             history=history_payload,
-            patient_context=patient_ctx
+            patient_context=patient_ctx,
+            location_context=request.location_context
         ):
             full_text += chunk
             yield chunk
@@ -236,6 +238,70 @@ async def get_chat_history(
     return {"history": messages}
 
 
+@router.post("/conversations", summary="Create New Conversation Thread")
+async def create_new_conversation(
+    payload: CreateConversationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Creates a new conversation thread document under users/{uid}/conversations/{conversationId}.
+    Strictly scoped to the authenticated user's Firebase UID.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authenticated UID required")
+
+    conv_data = payload.model_dump(exclude_unset=True)
+    conv = await firestore_chat_service.create_conversation(uid, conv_data)
+    return {"success": True, "conversation": conv}
+
+
+@router.patch("/conversations/{conversation_id}", summary="Rename Conversation Thread")
+async def rename_conversation(
+    conversation_id: str,
+    payload: RenameConversationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Renames the conversation title for users/{uid}/conversations/{conversationId}.
+    Strictly verifies ownership before updating.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authenticated UID required")
+
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+
+    conv = await firestore_chat_service.get_conversation(uid, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=403, detail="Access denied: Conversation not found or belongs to another user")
+
+    updated = await firestore_chat_service.update_conversation(uid, conversation_id, {"title": title})
+    return {"success": True, "conversation": updated}
+
+
+@router.delete("/clear", summary="Clear Current User Default Conversation")
+async def clear_conversation(
+    conversation_id: Optional[str] = Query("conv_default", alias="conversationId"),
+    current_user: Dict[str, Any] = Depends(get_current_user_from_token)
+):
+    """
+    Clears messages and conversation thread for the authenticated user.
+    """
+    uid = current_user.get("uid") or current_user.get("id")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authenticated UID required")
+
+    conv_id = conversation_id or "conv_default"
+    await firestore_chat_service.delete_conversation(uid, conv_id)
+    if conv_id in ("default", "conv_default"):
+        await firestore_chat_service.delete_conversation(uid, "conv_default")
+        await firestore_chat_service.delete_conversation(uid, "default")
+    return {"success": True, "message": "Conversation deleted successfully", "id": conv_id}
+
+
 @router.delete("/conversations/{conversation_id}", summary="Delete Conversation Thread")
 async def delete_conversation_thread(
     conversation_id: str,
@@ -243,15 +309,32 @@ async def delete_conversation_thread(
 ):
     """
     Deletes conversation and subcollection messages for users/{uid}/conversations/{conversationId}.
+    Strictly scoped to the authenticated user's Firebase UID.
+    Prevents unauthorized deletion of another user's conversation.
     """
     uid = current_user.get("uid") or current_user.get("id")
     if not uid:
         raise HTTPException(status_code=401, detail="Authenticated UID required")
 
-    success = await firestore_chat_service.delete_conversation(uid, conversation_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Conversation not found or access denied")
-    return {"success": True, "message": "Conversation deleted successfully"}
+    if not conversation_id or not conversation_id.strip():
+        raise HTTPException(status_code=400, detail="Conversation ID is required")
+
+    # If it's a specific custom conversation ID (not default fallback), verify ownership
+    if conversation_id not in ("default", "conv_default"):
+        conv = await firestore_chat_service.get_conversation(uid, conversation_id)
+        if not conv:
+            raise HTTPException(status_code=403, detail="Access denied: Conversation not found or belongs to another user")
+
+    await firestore_chat_service.delete_conversation(uid, conversation_id)
+    if conversation_id in ("default", "conv_default"):
+        await firestore_chat_service.delete_conversation(uid, "conv_default")
+        await firestore_chat_service.delete_conversation(uid, "default")
+
+    return {
+        "success": True,
+        "message": "Conversation deleted successfully",
+        "deletedId": conversation_id
+    }
 
 
 @router.delete("/history/{message_id}", summary="Delete Chat Message from Firestore")
@@ -270,5 +353,6 @@ async def delete_chat_message(
     conv_id = conversation_id or "conv_default"
     success = await firestore_chat_service.delete_message(uid, conv_id, message_id)
     return {"success": success}
+
 
 

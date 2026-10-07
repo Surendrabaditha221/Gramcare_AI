@@ -11,11 +11,11 @@ class HealthResponse(BaseModel):
     ai_status: str = "ok"
 
 from schemas.triage import TriageRequest, TriageResponse
-from schemas.chat import ChatRequest, ChatResponse
+from schemas.chat import ChatRequest, ChatResponse, RenameConversationRequest, CreateConversationRequest
 from schemas.document import DocumentAnalyzeRequest, DocumentAnalyzeResponse
 from schemas.patient import PatientCreate, PatientResponse
 from schemas.record import HealthRecordCreate, HealthRecordResponse
-from schemas.facility import HealthcareFacilityResponse
+from schemas.facility import HealthcareFacilityResponse, FacilitySource
 from schemas.alert import AlertCreate, AlertResponse
 from schemas.appointment import AppointmentCreate, AppointmentResponse
 from schemas.sync import SyncRequest, SyncResponse

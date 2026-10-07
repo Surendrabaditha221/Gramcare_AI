@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { HeartPulse, Loader2, AlertCircle, WifiOff, Phone, ArrowRight } from 'lucide-react';
+import { HeartPulse, Loader2, AlertCircle, WifiOff, Phone, ArrowRight, RefreshCw } from 'lucide-react';
 import { useLanguage } from '../hooks/useLanguage';
 import { useAuth } from '../context/AuthContext';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -35,48 +35,84 @@ const AppleIcon: React.FC = () => (
 export const LoginSignupScreen: React.FC<LoginSignupScreenProps> = ({ onSuccess }) => {
   const { t, lang } = useLanguage();
   const { rawBrowserOnline } = useOnlineStatus();
-  const { loginWithPhone, loginWithGoogle, loginWithFacebook, loginWithApple, loading, error, clearError } = useAuth();
+  const {
+    loginWithPhone,
+    loginWithGoogle,
+    loginWithFacebook,
+    loginWithApple,
+    loading,
+    error,
+    serverHealthy,
+    backendTargetUrl,
+    backendErrorDetails,
+    checkServerConnection,
+    clearError
+  } = useAuth();
   const [phoneNumber, setPhoneNumber] = useState<string>('');
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [activeProvider, setActiveProvider] = useState<AuthProviderType | null>(null);
+  const [isRetryingConnection, setIsRetryingConnection] = useState<boolean>(false);
 
   const isAuthAllowed = rawBrowserOnline;
 
+  const handleRetryConnection = async () => {
+    setIsRetryingConnection(true);
+    clearError();
+    setPhoneError(null);
+    try {
+      await checkServerConnection();
+    } finally {
+      setIsRetryingConnection(false);
+    }
+  };
+
   const handlePhoneLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || activeProvider) return; // Prevent duplicate requests
     setPhoneError(null);
     clearError();
 
     const digitsOnly = phoneNumber.replace(/\D/g, '');
-    if (digitsOnly.length < 10) {
+    if (digitsOnly.length !== 10) {
       setPhoneError('Please enter a valid 10-digit mobile number.');
       return;
     }
 
-    setActiveProvider('phone');
-    const userObj = await loginWithPhone(`+91${digitsOnly.slice(-10)}`);
-    setActiveProvider(null);
+    if (!/^[6-9]/.test(digitsOnly)) {
+      setPhoneError('Please enter a valid Indian mobile number starting with 6, 7, 8, or 9.');
+      return;
+    }
 
-    if (userObj) {
-      onSuccess();
+    setActiveProvider('phone');
+    try {
+      const userObj = await loginWithPhone(`+91${digitsOnly}`);
+      if (userObj) {
+        onSuccess();
+      }
+    } finally {
+      setActiveProvider(null);
     }
   };
 
   const handleProviderLogin = async (provider: AuthProviderType) => {
-    if (!isAuthAllowed || loading) return;
+    if (!isAuthAllowed || loading || activeProvider) return; // Prevent duplicate requests
     clearError();
+    setPhoneError(null);
     setActiveProvider(provider);
 
     let appUser = null;
-    if (provider === 'google') {
-      appUser = await loginWithGoogle();
-    } else if (provider === 'facebook') {
-      appUser = await loginWithFacebook();
-    } else if (provider === 'apple') {
-      appUser = await loginWithApple();
+    try {
+      if (provider === 'google') {
+        appUser = await loginWithGoogle();
+      } else if (provider === 'facebook') {
+        appUser = await loginWithFacebook();
+      } else if (provider === 'apple') {
+        appUser = await loginWithApple();
+      }
+    } finally {
+      setActiveProvider(null);
     }
 
-    setActiveProvider(null);
     if (appUser) {
       onSuccess();
     }
@@ -119,9 +155,70 @@ export const LoginSignupScreen: React.FC<LoginSignupScreenProps> = ({ onSuccess 
           Welcome to GramCare
         </h2>
 
-        <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '20px' }}>
+        <p style={{ fontSize: '14px', color: '#64748b', marginBottom: '14px' }}>
           Access healthcare guidance for you and your family.
         </p>
+
+        {/* Server Connection Status Pill */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+          {serverHealthy === true && (
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '11px',
+              fontWeight: 600,
+              color: '#047857',
+              backgroundColor: '#ecfdf5',
+              border: '1px solid #a7f3d0',
+              borderRadius: '20px',
+              padding: '3px 10px'
+            }}>
+              <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#10b981' }} />
+              <span>GramCare Server Ready</span>
+            </div>
+          )}
+          {serverHealthy === false && (
+            <button
+              type="button"
+              onClick={handleRetryConnection}
+              disabled={isRetryingConnection}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#b91c1c',
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fca5a5',
+                borderRadius: '20px',
+                padding: '3px 10px',
+                cursor: 'pointer'
+              }}
+            >
+              <RefreshCw size={11} style={{ animation: isRetryingConnection ? 'spin 1s linear infinite' : 'none' }} />
+              <span>{isRetryingConnection ? 'Reconnecting...' : `Server Offline (${backendTargetUrl || 'Backend'}) • Retry`}</span>
+            </button>
+          )}
+          {serverHealthy === null && (
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '11px',
+              fontWeight: 500,
+              color: '#64748b',
+              backgroundColor: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '20px',
+              padding: '3px 10px'
+            }}>
+              <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
+              <span>Checking Server Connection...</span>
+            </div>
+          )}
+        </div>
 
         {/* Offline Warning Banner */}
         {!rawBrowserOnline && (
@@ -164,13 +261,37 @@ export const LoginSignupScreen: React.FC<LoginSignupScreenProps> = ({ onSuccess 
             gap: '10px'
           }}>
             <AlertCircle size={20} color="#dc2626" style={{ flexShrink: 0, marginTop: '2px' }} />
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontSize: '13px', fontWeight: 700, color: '#991b1b', marginBottom: '2px' }}>
                 Authentication Notice
               </div>
               <div style={{ fontSize: '12px', color: '#b91c1c', lineHeight: 1.4 }}>
                 {phoneError || error}
               </div>
+              {Boolean(error && (error.includes('server') || error.includes('offline') || error.includes('unreachable') || error.includes('timed out'))) && (
+                <button
+                  type="button"
+                  onClick={handleRetryConnection}
+                  disabled={isRetryingConnection}
+                  style={{
+                    marginTop: '8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: '#0f766e',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #0f766e',
+                    padding: '4px 10px',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <RefreshCw size={12} style={{ animation: isRetryingConnection ? 'spin 1s linear infinite' : 'none' }} />
+                  <span>{isRetryingConnection ? 'Checking Connection...' : 'Retry Server Connection'}</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -201,7 +322,11 @@ export const LoginSignupScreen: React.FC<LoginSignupScreenProps> = ({ onSuccess 
               required
               maxLength={10}
               value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
+              onChange={(e) => {
+                setPhoneNumber(e.target.value.replace(/\D/g, ''));
+                if (phoneError) setPhoneError(null);
+                if (error) clearError();
+              }}
               placeholder="Enter 10-digit mobile number"
               style={{
                 flex: 1,

@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = Field(default=None, description="Firestore conversation document ID")
     history: Optional[List[Dict[str, Any]]] = Field(default=None, description="Past conversation history turns")
     patient_context: Optional[Dict[str, Any]] = Field(default=None, description="Clinical context (age, gender, relation, allergies, conditions, medications)")
+    location_context: Optional[Dict[str, Any]] = Field(default=None, description="Active user location coordinates and address name")
 
 
 class ChatResponse(BaseModel):
@@ -22,3 +23,14 @@ class ChatResponse(BaseModel):
     isEmergency: bool = False
     sources: Optional[List[Dict[str, Any]]] = None
     disclaimer: str
+
+
+class RenameConversationRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120, description="New title for the conversation")
+
+
+class CreateConversationRequest(BaseModel):
+    id: Optional[str] = Field(default=None, description="Optional custom conversation ID")
+    title: Optional[str] = Field(default="Health Consultation", max_length=120, description="Conversation title")
+    patientName: Optional[str] = Field(default="Primary User", max_length=100, description="Patient name")
+

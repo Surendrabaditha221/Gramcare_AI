@@ -27,6 +27,11 @@ class MemoryDataStore:
         for p in self.patients:
             p_id = p.get("id")
             p_name = (p.get("fullName") or "").strip().lower()
+            p_rel = (p.get("relation") or "").strip().lower()
+
+            if p_id == "user_primary" or p_name == "baditha surendra other" or (p_name == "baditha surendra" and p_rel in ["other", "self", "myself", ""]):
+                continue
+
             if (p_id and p_id in seen_ids) or (p_name and p_name in seen_names):
                 continue
             if p_id:
@@ -46,6 +51,10 @@ class MemoryDataStore:
     def add_patient(self, patient: Dict[str, Any]) -> Dict[str, Any]:
         p_id = patient.get("id")
         p_name = (patient.get("fullName") or "").strip().lower()
+        p_rel = (patient.get("relation") or "").strip().lower()
+
+        if p_id == "user_primary" or p_name == "baditha surendra other" or (p_name == "baditha surendra" and p_rel in ["other", "self", "myself", ""]):
+            return patient
 
         # Check if patient already exists by ID or by Name
         for idx, existing in enumerate(self.patients):

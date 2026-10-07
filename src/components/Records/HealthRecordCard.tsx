@@ -5,7 +5,7 @@ import { formatDateString } from '../../utils/dateUtils';
 
 interface HealthRecordCardProps {
   record: HealthRecord;
-  lang: 'en' | 'te';
+  lang?: string;
 }
 
 export const HealthRecordCard: React.FC<HealthRecordCardProps> = ({ record, lang }) => {

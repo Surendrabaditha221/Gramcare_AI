@@ -27,19 +27,64 @@ import { HealthGuidanceScreen } from '../screens/HealthGuidanceScreen';
 import { useAuth } from '../context/AuthContext';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { usePatientSelector } from '../hooks/usePatientSelector';
-import { localStorageService } from '../services/localStorageService';
+import { localStorageService, isUnwantedFamilyMember } from '../services/localStorageService';
 import { indexedDbService } from '../services/indexedDbService';
 import { processPendingOfflineSync } from '../services/syncService';
 import { saveRecordBackend, syncOfflineDataBackend } from '../services/api';
 import { HealthRecord, DocumentScanResult } from '../types/records';
 import { EmergencyModal } from '../components/Emergency/EmergencyModal';
-import { Loader2 } from 'lucide-react';
+import { FamilyEmergencyAlertScreen } from '../screens/FamilyEmergencyAlertScreen';
+import { listenToForegroundMessages } from '../services/fcm';
+import { Loader2, AlertTriangle } from 'lucide-react';
 
 export const AppRouter: React.FC = () => {
-  const { user, loading: authLoading, logout } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+    logout,
+    backendTargetUrl,
+    serverHealthy,
+    checkServerConnection
+  } = useAuth();
+  const [sessionTimedOut, setSessionTimedOut] = useState(false);
+  const [bypassLoading, setBypassLoading] = useState(false);
+
+  useEffect(() => {
+    if (authLoading && !bypassLoading) {
+      const timer = setTimeout(() => {
+        setSessionTimedOut(true);
+      }, 3500);
+      return () => clearTimeout(timer);
+    } else {
+      setSessionTimedOut(false);
+    }
+  }, [authLoading, bypassLoading]);
+
+  // Active Emergency Alert ID (if opening an alert details view)
+  const [activeAlertId, setActiveAlertId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const parts = window.location.pathname.replace(/^\/+/, '').split('/');
+      if (parts[0] === 'emergency' && parts[1]) {
+        return parts[1];
+      }
+    }
+    return null;
+  });
 
   // Navigation Flow State
-  const [currentRoute, setCurrentRoute] = useState<string>('splash');
+  const [currentRoute, setCurrentRoute] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const parts = window.location.pathname.replace(/^\/+/, '').split('/');
+      if (parts[0] === 'emergency' && parts[1]) {
+        return 'emergency_alert';
+      }
+      const path = parts[0].toLowerCase();
+      if (['language', 'scanner', 'home', 'auth', 'onboarding', 'profile_setup', 'records', 'nearby', 'settings'].includes(path)) {
+        return path;
+      }
+    }
+    return 'splash';
+  });
   const [isEmergencyModalOpen, setIsEmergencyModalOpen] = useState(false);
   const [triageDataResult, setTriageDataResult] = useState<any>(null);
 
@@ -66,6 +111,20 @@ export const AppRouter: React.FC = () => {
     setNotifications(localStorageService.getNotifications(user?.uid));
   }, [user?.uid]);
 
+  // Subscribe to real-time foreground FCM messages
+  useEffect(() => {
+    const unsubscribe = listenToForegroundMessages((payload) => {
+      const eventId = payload?.data?.alertId || payload?.data?.eventId;
+      if (eventId) {
+        setActiveAlertId(eventId);
+        setCurrentRoute('emergency_alert');
+      }
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
   const userHasCompletedProfile = Boolean(
     user && (
       user.profileCompleted ||
@@ -91,7 +150,7 @@ export const AppRouter: React.FC = () => {
 
     if (user) {
       if (userHasCompletedProfile) {
-        if (['onboarding', 'auth', 'language', 'profile_setup', 'profile_confirm'].includes(currentRoute)) {
+        if (['onboarding', 'auth', 'profile_setup', 'profile_confirm'].includes(currentRoute)) {
           setCurrentRoute('home');
         }
       } else {
@@ -110,6 +169,18 @@ export const AppRouter: React.FC = () => {
       }
     }
   }, [user, userHasCompletedProfile, authLoading, currentRoute]);
+
+  // Handle browser Back / Forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.replace(/^\/+/, '').split('/')[0].toLowerCase();
+      if (path) {
+        setCurrentRoute(path);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Load IndexedDB records on mount if available
   useEffect(() => {
@@ -140,7 +211,7 @@ export const AppRouter: React.FC = () => {
       processPendingOfflineSync().then(() => {
         syncOfflineDataBackend({
           userId: user?.uid,
-          patients: [profile, ...(profile.familyMembers || [])],
+          patients: (profile.familyMembers || []).filter(m => !isUnwantedFamilyMember(m, profile.fullName)),
           records: records,
           alerts: notifications
         }, user?.uid).catch(() => {});
@@ -151,6 +222,9 @@ export const AppRouter: React.FC = () => {
   const navigateTo = (route: string) => {
     setCurrentRoute(route);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (typeof window !== 'undefined' && window.history) {
+      window.history.pushState(null, '', `/${route}`);
+    }
   };
 
   const handleLogout = async () => {
@@ -201,9 +275,10 @@ export const AppRouter: React.FC = () => {
       title: `${scan.docType} Scan Result`,
       type: 'medical_document',
       date: scan.date,
-      summary: scan.keyFindings.join('. '),
+      summary: scan.aiSummary || (scan.keyFindings && scan.keyFindings.length > 0 ? scan.keyFindings.join('. ') : `${scan.docType} analyzed`),
       facilityOrDoctor: scan.doctorOrLabName,
-      tags: ['Scanned', scan.docType]
+      tags: ['Scanned', scan.docType],
+      scanResult: scan
     };
     const updated = localStorageService.saveHealthRecord(newRecord, user?.uid);
     await indexedDbService.saveHealthRecord(newRecord);
@@ -214,8 +289,6 @@ export const AppRouter: React.FC = () => {
     } else {
       await indexedDbService.addPendingSyncItem('record', newRecord);
     }
-
-    navigateTo('records');
   };
 
   const handleCompleteTriage = async (data: any) => {
@@ -249,7 +322,121 @@ export const AppRouter: React.FC = () => {
     setNotifications(updated);
   };
 
-  if (authLoading && !['splash', 'ai_intro'].includes(currentRoute)) {
+  const hasSavedSession = Boolean(
+    typeof localStorage !== 'undefined' && (
+      localStorage.getItem('gramcare_access_token') ||
+      localStorage.getItem('gramcare_auth_session')
+    )
+  );
+
+  // If loading session but user navigated directly to /auth with no saved session, don't block them!
+  const shouldSkipLoadingForAuth = currentRoute === 'auth' && !hasSavedSession;
+
+  if (authLoading && !bypassLoading && !shouldSkipLoadingForAuth && !['splash', 'ai_intro'].includes(currentRoute)) {
+    if (sessionTimedOut) {
+      return (
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          backgroundColor: '#f8fafc',
+          color: '#1e293b',
+          padding: '24px',
+          textAlign: 'center'
+        }}>
+          <div style={{
+            maxWidth: '420px',
+            width: '100%',
+            backgroundColor: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '16px',
+            padding: '24px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)'
+          }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '50%',
+              backgroundColor: '#fef3c7',
+              color: '#d97706',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px'
+            }}>
+              <AlertTriangle size={24} />
+            </div>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
+              Session Initialization Notice
+            </h3>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '14px', lineHeight: 1.5 }}>
+              Connecting to the GramCare backend service took longer than expected.
+            </p>
+            <div style={{
+              backgroundColor: '#f1f5f9',
+              borderRadius: '8px',
+              padding: '10px 12px',
+              fontSize: '12px',
+              color: '#334155',
+              fontFamily: 'monospace',
+              marginBottom: '18px',
+              wordBreak: 'break-all',
+              textAlign: 'left'
+            }}>
+              <div><strong>Backend Target:</strong> {backendTargetUrl || 'http://10.237.218.153:8000'}</div>
+              <div style={{ marginTop: '4px', color: serverHealthy === false ? '#dc2626' : '#64748b' }}>
+                <strong>Status:</strong> {serverHealthy === false ? 'Offline / Unreachable' : 'Verifying...'}
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setBypassLoading(true);
+                  setCurrentRoute('auth');
+                }}
+                style={{
+                  width: '100%',
+                  height: '44px',
+                  backgroundColor: '#0f766e',
+                  color: '#ffffff',
+                  borderRadius: '10px',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: 'pointer'
+                }}
+              >
+                Continue to Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSessionTimedOut(false);
+                  checkServerConnection();
+                }}
+                style={{
+                  width: '100%',
+                  height: '44px',
+                  backgroundColor: '#f8fafc',
+                  color: '#0f766e',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: 'pointer'
+                }}
+              >
+                Retry Backend Connection
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={{
         display: 'flex',
@@ -259,10 +446,15 @@ export const AppRouter: React.FC = () => {
         minHeight: '100vh',
         backgroundColor: '#f8fafc',
         color: '#0f766e',
-        gap: '12px'
+        gap: '12px',
+        padding: '24px',
+        textAlign: 'center'
       }}>
         <Loader2 size={40} style={{ animation: 'spin 1s linear infinite' }} />
         <span style={{ fontSize: '15px', fontWeight: 600 }}>Loading GramCare AI Session...</span>
+        <span style={{ fontSize: '12px', color: '#64748b' }}>
+          Connecting to {backendTargetUrl || 'GramCare Backend'}...
+        </span>
       </div>
     );
   }
@@ -403,10 +595,21 @@ export const AppRouter: React.FC = () => {
   }
   if (currentRoute === 'sos') {
     return (
-      <SOSEmergencyScreen
-        onBack={() => navigateTo('home')}
-        onNavigateToNearby={() => navigateTo('nearby')}
-      />
+      <>
+        <SOSEmergencyScreen
+          onBack={() => navigateTo('home')}
+          onNavigateToNearby={() => navigateTo('nearby')}
+          onTriggerSOSAlert={() => setIsEmergencyModalOpen(true)}
+        />
+        <EmergencyModal
+          isOpen={isEmergencyModalOpen}
+          onClose={() => setIsEmergencyModalOpen(false)}
+          onViewAlertDetails={(eventId) => {
+            setActiveAlertId(eventId);
+            navigateTo('emergency_alert');
+          }}
+        />
+      </>
     );
   }
 
@@ -467,6 +670,7 @@ export const AppRouter: React.FC = () => {
         return (
           <DocumentScannerScreen
             activePatientName={activePatientName}
+            userProfile={profile}
             onSaveRecord={handleSaveScanRecord}
           />
         );
@@ -494,7 +698,6 @@ export const AppRouter: React.FC = () => {
         return (
           <ProfileScreen
             profile={{ ...profile, fullName: profile.fullName || user?.displayName || '' }}
-            onEditProfile={() => navigateTo('profile_setup')}
             onNavigateToSettings={() => navigateTo('settings')}
             onLogout={handleLogout}
             onUpdateFamilyMember={updateFamilyMember}
@@ -508,6 +711,13 @@ export const AppRouter: React.FC = () => {
             onLogout={handleLogout}
           />
         );
+      case 'emergency_alert':
+        return (
+          <FamilyEmergencyAlertScreen
+            eventId={activeAlertId || ''}
+            onBack={() => navigateTo('home')}
+          />
+        );
       default:
         return (
           <HomeDashboardScreen
@@ -518,7 +728,7 @@ export const AppRouter: React.FC = () => {
             onSelectPatient={selectPatient}
             onAddFamilyMember={addFamilyMember}
             onNavigate={navigateTo}
-            onOpenEmergency={() => navigateTo('sos')}
+            onOpenEmergency={() => setIsEmergencyModalOpen(true)}
           />
         );
     }
@@ -529,7 +739,7 @@ export const AppRouter: React.FC = () => {
       currentRoute={currentRoute}
       onNavigate={navigateTo}
       onOpenEmergencyModal={() => setIsEmergencyModalOpen(true)}
-      showBottomNav={!['splash', 'ai_intro', 'language', 'onboarding', 'auth', 'profile_setup', 'profile_confirm', 'sos'].includes(currentRoute)}
+      showBottomNav={!['splash', 'ai_intro', 'language', 'onboarding', 'auth', 'profile_setup', 'profile_confirm', 'sos', 'emergency_alert'].includes(currentRoute)}
       activePatientName={activePatientName}
       userName={user?.displayName || profile.fullName}
     >
@@ -537,6 +747,10 @@ export const AppRouter: React.FC = () => {
       <EmergencyModal
         isOpen={isEmergencyModalOpen}
         onClose={() => setIsEmergencyModalOpen(false)}
+        onViewAlertDetails={(eventId) => {
+          setActiveAlertId(eventId);
+          navigateTo('emergency_alert');
+        }}
       />
     </AppLayout>
   );

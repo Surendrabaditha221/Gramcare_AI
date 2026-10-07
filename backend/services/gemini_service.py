@@ -207,7 +207,7 @@ async def build_location_facility_context(
     source = location_context.get("source", "gps")
     addr_name = location_context.get("addressName") or location_context.get("displayName") or "Current Location"
 
-    source_label = "GPS Active" if source == "gps" else "Approximate Location (IP)"
+    source_label = "Current Device Location (GPS)" if source == "gps" else "Manual Search Location"
     loc_str = (
         f"Location Source: {source_label}\n"
         f"Coordinates: {lat}, {lon}\n"
@@ -1080,25 +1080,64 @@ class GeminiService:
         if client and raw_text:
             try:
                 prompt = f"""
-                Extract structured medical information from the following text/document for GramCare AI:
+                You are a clinical laboratory document analyzer for GramCare AI.
+                Extract structured medical information from the following text:
                 Document Type: {doc_type}
-                Patient Name: {patient_name}
+                Active Patient Name: {patient_name}
                 Raw Document Text:
                 {raw_text}
 
-                Return JSON structure:
+                Return valid JSON (no markdown fences):
                 {{
                   "doc_type": "{doc_type}",
                   "extracted_patient_name": "{patient_name}",
-                  "doctor_or_lab_name": "Extracted Doctor/Lab Name",
-                  "date": "YYYY-MM-DD",
-                  "key_findings": ["Finding 1", "Finding 2"],
-                  "medications_mentioned": ["Med 1", "Med 2"],
-                  "follow_up_instructions": "Follow up advice"
+                  "patient_details": {{
+                    "name": "{patient_name}",
+                    "patient_id": "",
+                    "age": "",
+                    "gender": "",
+                    "referring_doctor": "",
+                    "department": ""
+                  }},
+                  "report_details": {{
+                    "report_id": "",
+                    "laboratory_name": "",
+                    "department": "",
+                    "specimen_type": "",
+                    "collection_date": "",
+                    "collection_time": "",
+                    "report_date": "",
+                    "report_time": "",
+                    "status": "Verified"
+                  }},
+                  "test_panels": [
+                    {{
+                      "panel_name": "Clinical Laboratory Tests",
+                      "department": "Diagnostic Pathology",
+                      "results": [
+                        {{
+                          "test_name": "Test Name",
+                          "result": "Value",
+                          "unit": "Unit",
+                          "reference_range": "Ref Range",
+                          "status": "Normal"
+                        }}
+                      ]
+                    }}
+                  ],
+                  "narrative_sections": [],
+                  "abnormal_alerts": [],
+                  "doctor_or_lab_name": "",
+                  "date": "",
+                  "key_findings": ["finding 1"],
+                  "medications_mentioned": [],
+                  "follow_up_instructions": "",
+                  "ai_summary": "",
+                  "extraction_status": "complete"
                 }}
                 """
                 response = None
-                for m_name in ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.7-flash"]:
+                for m_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
                     try:
                         response = client.models.generate_content(
                             model=m_name,
@@ -1111,42 +1150,44 @@ class GeminiService:
 
                 if response and response.text:
                     cleaned_text = response.text.strip()
-                    if cleaned_text.startswith("```json"):
+                    if cleaned_text.startswith("```"):
+                        cleaned_text = cleaned_text.split("```")[-2] if "```" in cleaned_text[3:] else cleaned_text
                         cleaned_text = cleaned_text.replace("```json", "").replace("```", "").strip()
                     return json.loads(cleaned_text)
             except Exception as e:
-                logger.error(f"Gemini Document Analysis failed: {e}. Falling back to default parser.")
+                logger.error(f"Gemini Document Analysis failed: {e}. Falling back to clean parser.")
 
-        # Default Fallback structured extraction
-        if doc_type.lower() in ["prescription", "rx"]:
-            return {
-                "doc_type": "Prescription",
-                "extracted_patient_name": patient_name,
-                "doctor_or_lab_name": "Medical Officer (PHC)",
-                "date": "2026-08-02",
-                "key_findings": [
-                    "Diagnosis: Acute Viral Fever & Upper Respiratory Infection",
-                    "Advice: Cold sponging, ORS hydration solution",
-                    "Follow-up: Revisit PHC if fever persists past 3 days"
-                ],
-                "medications_mentioned": [
-                    "Tab. Paracetamol 500mg (TDS x 3 days)",
-                    "ORS Powder Packets (1L daily)",
-                    "Cetirizine 10mg (HS x 3 days)"
-                ],
-                "follow_up_instructions": "Please visit your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital if temperature remains elevated."
-            }
-        else:
-            return {
-                "doc_type": "Medical Report",
-                "extracted_patient_name": patient_name,
-                "doctor_or_lab_name": "Sehore District Pathology Lab",
-                "date": "2026-08-02",
-                "key_findings": [
-                    "Hemoglobin (Hb): 12.4 g/dL (Normal Range)",
-                    "Malaria Antigen (Pf/Pv): Negative",
-                    "Random Blood Sugar: 110 mg/dL (Normal)"
-                ],
-                "medications_mentioned": [],
-                "follow_up_instructions": "Routine health checkup recommended annually."
-            }
+        # Non-fictional Fallback: return honest empty state without hardcoded hospital or patient data
+        return {
+            "doc_type": doc_type,
+            "extracted_patient_name": patient_name,
+            "patient_details": {
+                "name": patient_name,
+                "patient_id": "",
+                "age": "",
+                "gender": "",
+                "referring_doctor": "",
+                "department": ""
+            },
+            "report_details": {
+                "report_id": "",
+                "laboratory_name": "",
+                "department": "Clinical Laboratory Services",
+                "specimen_type": "",
+                "collection_date": "",
+                "collection_time": "",
+                "report_date": "",
+                "report_time": "",
+                "status": "Pending Verification"
+            },
+            "test_panels": [],
+            "narrative_sections": [],
+            "abnormal_alerts": [],
+            "doctor_or_lab_name": "",
+            "date": "",
+            "key_findings": [raw_text[:400]] if raw_text else ["No readable clinical findings were extracted."],
+            "medications_mentioned": [],
+            "follow_up_instructions": "Please consult a medical officer at your nearest Primary Health Centre (PHC), Community Health Centre (CHC), or hospital.",
+            "ai_summary": raw_text[:200] if raw_text else "",
+            "extraction_status": "partial"
+        }

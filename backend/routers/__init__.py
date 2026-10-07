@@ -16,6 +16,7 @@ from routers.users import router as users_router
 from routers.settings import router as settings_router
 from routers.appointments import router as appointments_router
 from routers.firebase_test import router as firebase_test_router
+from routers.emergency import router as emergency_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -33,4 +34,5 @@ api_router.include_router(alerts_router, tags=["Alerts & Reminders"])
 api_router.include_router(settings_router, tags=["User Settings"])
 api_router.include_router(appointments_router, tags=["Appointments Management"])
 api_router.include_router(sync_router, tags=["Offline Sync"])
+api_router.include_router(emergency_router, tags=["Emergency SOS & Family Notifications"])
 

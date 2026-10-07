@@ -1,25 +1,26 @@
 import React from 'react';
 import { Wifi, WifiOff, AlertTriangle } from 'lucide-react';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { useLanguage } from '../../hooks/useLanguage';
 
 interface ConnectivityIndicatorProps {
   status?: string;
   isOnline?: boolean;
-  lang?: 'en' | 'te';
+  lang?: string;
 }
 
 export const ConnectivityIndicator: React.FC<ConnectivityIndicatorProps> = ({
-  lang = 'en'
+  lang: _langProp
 }) => {
   const { isOnline, backendStatus } = useOnlineStatus();
+  const { t } = useLanguage();
 
   let bgColor = '#f0fdf4';
   let borderColor = '#bbf7d0';
   let textColor = '#15803d';
   let dotColor = '#22c55e';
   let icon = <Wifi size={14} color="#15803d" />;
-  let labelEn = 'Online';
-  let labelTe = 'ఆన్‌లైన్';
+  let label = t.online || 'Online';
 
   if (!isOnline) {
     // CASE 1: Device Offline (Internet OFFLINE)
@@ -28,8 +29,7 @@ export const ConnectivityIndicator: React.FC<ConnectivityIndicatorProps> = ({
     textColor = '#dc2626';
     dotColor = '#ef4444';
     icon = <WifiOff size={14} color="#dc2626" />;
-    labelEn = "You're Offline";
-    labelTe = 'మీరు ఆఫ్‌లైన్‌లో ఉన్నారు';
+    label = t.offline || "Offline";
   } else if (backendStatus === 'RECONNECTING') {
     // CASE 2: Internet ONLINE + Backend RECONNECTING
     bgColor = '#fefce8';
@@ -37,8 +37,7 @@ export const ConnectivityIndicator: React.FC<ConnectivityIndicatorProps> = ({
     textColor = '#a16207';
     dotColor = '#eab308';
     icon = <Wifi size={14} color="#a16207" />;
-    labelEn = 'Reconnecting...';
-    labelTe = 'మళ్ళీ కనెక్ట్ చేస్తోంది...';
+    label = t.loading || 'Reconnecting...';
   } else if (backendStatus === 'UNREACHABLE') {
     // CASE 3: Internet ONLINE + Backend UNREACHABLE (All retries failed)
     bgColor = '#fff7ed';
@@ -46,8 +45,7 @@ export const ConnectivityIndicator: React.FC<ConnectivityIndicatorProps> = ({
     textColor = '#c2410c';
     dotColor = '#ea580c';
     icon = <AlertTriangle size={14} color="#c2410c" />;
-    labelEn = 'GramCare backend unavailable';
-    labelTe = 'గ్రామ్‌కేర్ బ్యాకెండ్ అందుబాటులో లేదు';
+    label = t.backendUnavailableTitle || 'Backend unavailable';
   }
 
   return (
@@ -66,7 +64,7 @@ export const ConnectivityIndicator: React.FC<ConnectivityIndicatorProps> = ({
         transition: 'all 0.3s ease',
         boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
       }}
-      title={`GramCare Status: ${labelEn}`}
+      title={`GramCare Status: ${label}`}
     >
       <span
         style={{
@@ -79,7 +77,7 @@ export const ConnectivityIndicator: React.FC<ConnectivityIndicatorProps> = ({
         }}
       />
       {icon}
-      <span>{lang === 'te' ? labelTe : labelEn}</span>
+      <span>{label}</span>
     </div>
   );
 };

@@ -4,7 +4,7 @@ import { NotificationItem } from '../../types/notification';
 
 interface NotificationCardProps {
   item: NotificationItem;
-  lang: 'en' | 'te';
+  lang?: string;
 }
 
 export const NotificationCard: React.FC<NotificationCardProps> = ({ item, lang }) => {

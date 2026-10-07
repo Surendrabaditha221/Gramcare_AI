@@ -8,7 +8,7 @@ interface EditFamilyMemberModalProps {
   member: FamilyMember | null;
   onClose: () => void;
   onSave: (updated: FamilyMember) => void;
-  lang: 'en' | 'te';
+  lang?: string;
 }
 
 const RELATIONSHIP_OPTIONS: RelationshipOption[] = [
@@ -37,17 +37,15 @@ export const EditFamilyMemberModal: React.FC<EditFamilyMemberModalProps> = ({
   onSave,
   lang
 }) => {
-  if (!isOpen || !member) return null;
-
-  const [fullName, setFullName] = useState(member.fullName || '');
-  const [relation, setRelation] = useState<string>(member.relation || '');
-  const [dob, setDob] = useState(member.dob || '');
-  const [gender, setGender] = useState<GenderOption>(member.gender || 'male');
-  const [bloodGroup, setBloodGroup] = useState(member.bloodGroup || '');
-  const [phone, setPhone] = useState(member.phone || '');
-  const [knownAllergies, setKnownAllergies] = useState(member.knownAllergies || '');
-  const [medicalConditions, setMedicalConditions] = useState(member.medicalConditions || '');
-  const [currentMedications, setCurrentMedications] = useState(member.currentMedications || '');
+  const [fullName, setFullName] = useState(member?.fullName || '');
+  const [relation, setRelation] = useState<string>(member?.relation || '');
+  const [dob, setDob] = useState(member?.dob || '');
+  const [gender, setGender] = useState<GenderOption>(member?.gender || 'male');
+  const [bloodGroup, setBloodGroup] = useState(member?.bloodGroup || '');
+  const [phone, setPhone] = useState(member?.phone || '');
+  const [knownAllergies, setKnownAllergies] = useState(member?.knownAllergies || '');
+  const [medicalConditions, setMedicalConditions] = useState(member?.medicalConditions || '');
+  const [currentMedications, setCurrentMedications] = useState(member?.currentMedications || '');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,6 +62,8 @@ export const EditFamilyMemberModal: React.FC<EditFamilyMemberModalProps> = ({
       setErrorMsg(null);
     }
   }, [member]);
+
+  if (!isOpen || !member) return null;
 
   const calculatedAge = dob ? calculateAgeFromDOB(dob) : member.age;
 

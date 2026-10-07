@@ -48,31 +48,19 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     <div className="app-container">
       {/* Toast Notifications */}
       <Toast
-        message={
-          lang === 'te'
-            ? 'మీరు మళ్ళీ ఆన్‌లైన్‌లోకి వచ్చారు'
-            : "You're Back Online"
-        }
+        message={t.reconnectedToast}
         isVisible={showReconnectedToast}
         durationMs={3000}
         onClose={dismissToast}
       />
       <Toast
-        message={
-          lang === 'te'
-            ? 'మీరు ప్రస్తుతం ఆఫ్‌లైన్‌లో ఉన్నారు. అత్యవసర & ప్రాథమిక చికిత్స టూల్స్ అందుబాటులో ఉన్నాయి.'
-            : "You're Now Offline. Emergency & first-aid tools remain available."
-        }
+        message={t.offlineNotice}
         isVisible={showOfflineToast}
         durationMs={4000}
         onClose={dismissToast}
       />
       <Toast
-        message={
-          lang === 'te'
-            ? 'కొన్ని ఆన్‌లైన్ సేవలు అందుబాటులో లేవు.'
-            : "Some Online Services Unavailable"
-        }
+        message={t.backendUnavailableTitle}
         isVisible={showServiceUnavailableToast}
         durationMs={4000}
         onClose={dismissToast}

@@ -43,7 +43,7 @@ export const TriageGuidanceScreen: React.FC<TriageGuidanceScreenProps> = ({
                 Emergency Attention
               </span>
               <h3 style={{ margin: 0, fontSize: '18px', color: '#991b1b' }}>
-                {lang === 'te' ? 'అత్యవసర వైద్య సంరక్షణ అవసరం' : 'Immediate Medical Evaluation Recommended'}
+                {t.emergencyTitle || 'Immediate Medical Evaluation Recommended'}
               </h3>
             </div>
           </div>
@@ -63,10 +63,10 @@ export const TriageGuidanceScreen: React.FC<TriageGuidanceScreenProps> = ({
             <AlertTriangle size={32} color="#d97706" />
             <div>
               <span className="badge badge-moderate" style={{ fontSize: '13px', marginBottom: '4px' }}>
-                Seek Medical Care Soon
+                {t.moderate || 'Moderate Priority'}
               </span>
               <h3 style={{ margin: 0, fontSize: '18px', color: '#92400e' }}>
-                {lang === 'te' ? 'వైద్యుడిని సంప్రదించండి' : 'Consult Medical Officer at PHC'}
+                {t.findHealthcareBtn || 'Consult Medical Officer at PHC'}
               </h3>
             </div>
           </div>
@@ -87,10 +87,10 @@ export const TriageGuidanceScreen: React.FC<TriageGuidanceScreenProps> = ({
             <CheckCircle size={32} color="#16a34a" />
             <div>
               <span className="badge badge-low" style={{ fontSize: '13px', marginBottom: '4px' }}>
-                Non-Urgent Guidance
+                {t.mild || 'Non-Urgent Guidance'}
               </span>
               <h3 style={{ margin: 0, fontSize: '18px', color: '#14532d' }}>
-                {lang === 'te' ? 'ఇంటి వద్ద సంరక్షణ & విశ్రాంతి' : 'Supportive Home Care & Observation'}
+                {t.returnHomeBtn ? `${t.mild} - Supportive Home Care` : 'Supportive Home Care & Observation'}
               </h3>
             </div>
           </div>

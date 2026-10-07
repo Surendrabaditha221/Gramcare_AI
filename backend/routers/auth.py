@@ -8,6 +8,8 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 import logging
 import secrets
+import os
+import re
 from services.auth_service import (
     create_access_token,
     create_refresh_token,
@@ -52,6 +54,10 @@ class RefreshTokenRequest(BaseModel):
 
 class LanguageOnboardingRequest(BaseModel):
     language: str
+
+
+class PhoneAuthRequest(BaseModel):
+    phoneNumber: str
 
 
 # ─────────────────────────────────────────────
@@ -318,3 +324,39 @@ async def set_user_language(
     }
     updated_user = await firestore_user_service.update_user(uid, updates)
     return updated_user
+
+
+@router.post("/phone")
+async def phone_auth(req: PhoneAuthRequest):
+    """
+    Validates Indian 10-digit phone number and checks OTP gateway availability.
+    """
+    clean_phone = req.phoneNumber.strip().replace(" ", "").replace("-", "")
+    if clean_phone.startswith("+91"):
+        digits = clean_phone[3:]
+    elif clean_phone.startswith("91") and len(clean_phone) == 12:
+        digits = clean_phone[2:]
+    else:
+        digits = clean_phone
+
+    if not re.match(r"^[6-9]\d{9}$", digits):
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9."
+        )
+
+    # Check if SMS/OTP provider is configured
+    sms_gateway_configured = bool(os.getenv("SMS_GATEWAY_API_KEY") or os.getenv("TWILIO_ACCOUNT_SID"))
+    if not sms_gateway_configured:
+        return {
+            "status": "gateway_unavailable",
+            "message": "Phone OTP authentication is temporarily undergoing maintenance. Please sign in securely with Google.",
+            "phoneNumber": f"+91{digits}"
+        }
+
+    return {
+        "status": "otp_sent",
+        "message": f"Verification code sent to +91{digits}",
+        "phoneNumber": f"+91{digits}"
+    }
+

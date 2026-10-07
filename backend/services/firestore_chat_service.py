@@ -152,25 +152,22 @@ async def delete_conversation(uid: str, conversation_id: str) -> bool:
     if db:
         try:
             conv_ref = db.collection("users").document(uid).collection("conversations").document(conversation_id)
-            if not conv_ref.get().exists:
-                return False
-
             # Delete all subcollection messages first
             messages_ref = conv_ref.collection("messages").stream()
             for msg_doc in messages_ref:
                 msg_doc.reference.delete()
 
-            conv_ref.delete()
-            return True
+            if conv_ref.get().exists:
+                conv_ref.delete()
         except Exception as e:
             logger.warning(f"Firestore delete_conversation error: {e}. Falling back to in-memory store.")
 
     if uid in _in_memory_conversations and conversation_id in _in_memory_conversations[uid]:
         del _in_memory_conversations[uid][conversation_id]
-        if uid in _in_memory_messages and conversation_id in _in_memory_messages[uid]:
-            del _in_memory_messages[uid][conversation_id]
-        return True
-    return False
+    if uid in _in_memory_messages and conversation_id in _in_memory_messages[uid]:
+        del _in_memory_messages[uid][conversation_id]
+
+    return True
 
 
 async def save_message(uid: str, conversation_id: str, message: Dict[str, Any]) -> Dict[str, Any]:

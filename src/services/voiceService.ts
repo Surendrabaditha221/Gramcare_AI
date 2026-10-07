@@ -95,13 +95,27 @@ export function isSpeechSynthesisSupported(): boolean {
   return 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
 }
 
+// Module-level tracker to prevent multiple simultaneous recognition sessions
+let activeRecognitionSession: { stop: () => void; abort: () => void } | null = null;
+
 /**
  * Creates and starts a SpeechRecognition instance with proper callbacks and locale configuration.
+ * Enforces a single active session and cleanly detaches handlers on completion or abort.
  */
 export function startSpeechRecognition(options: SpeechRecognitionOptions): { stop: () => void; abort: () => void } | null {
   if (!isSpeechRecognitionSupported()) {
     options.onError('not_supported', getVoiceErrorMessage('not_supported', options.languageCode));
     return null;
+  }
+
+  // Prevent multiple simultaneous recognition sessions
+  if (activeRecognitionSession) {
+    try {
+      activeRecognitionSession.abort();
+    } catch {
+      // ignore
+    }
+    activeRecognitionSession = null;
   }
 
   try {
@@ -115,78 +129,137 @@ export function startSpeechRecognition(options: SpeechRecognitionOptions): { sto
     recognition.maxAlternatives = 1;
 
     let hasReceivedResult = false;
+    let latestTranscript = '';
     let isExplicitlyStopped = false;
+    let isExplicitlyAborted = false;
+    let isCleanedUp = false;
+
+    const cleanup = () => {
+      if (isCleanedUp) return;
+      isCleanedUp = true;
+      if (activeRecognitionSession === sessionHandle) {
+        activeRecognitionSession = null;
+      }
+      try {
+        recognition.onstart = null;
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
+      } catch {
+        // ignore
+      }
+    };
 
     recognition.onstart = () => {
+      if (isCleanedUp) return;
       if (options.onStart) options.onStart();
     };
 
     recognition.onresult = (event: any) => {
+      if (isCleanedUp) return;
       let interim = '';
       let final = '';
 
       for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const transcriptPart = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
+        const transcriptPart = event.results[i]?.[0]?.transcript || '';
+        if (event.results[i]?.isFinal) {
           final += transcriptPart;
         } else {
           interim += transcriptPart;
         }
       }
 
-      if (interim && options.onInterimResult) {
-        options.onInterimResult(interim);
+      if (interim) {
+        latestTranscript = interim;
+        if (options.onInterimResult) {
+          options.onInterimResult(interim);
+        }
       }
 
       if (final) {
         hasReceivedResult = true;
+        latestTranscript = final;
         options.onFinalResult(final.trim());
       }
     };
 
     recognition.onerror = (event: any) => {
+      if (isCleanedUp) return;
       const err = event.error;
 
       if (err === 'not-allowed' || err === 'permission-denied') {
         options.onError('permission_denied', getVoiceErrorMessage('permission_denied', options.languageCode));
       } else if (err === 'no-speech') {
-        if (!hasReceivedResult && !isExplicitlyStopped) {
-          options.onError('no_speech', getVoiceErrorMessage('no_speech', options.languageCode));
+        if (!hasReceivedResult && !isExplicitlyStopped && !isExplicitlyAborted) {
+          // If interim speech was previously received before timeout, deliver it
+          if (latestTranscript.trim()) {
+            hasReceivedResult = true;
+            options.onFinalResult(latestTranscript.trim());
+          } else {
+            options.onError('no_speech', getVoiceErrorMessage('no_speech', options.languageCode));
+          }
         }
       } else if (err === 'audio-capture') {
         options.onError('audio_capture', getVoiceErrorMessage('audio_capture', options.languageCode));
       } else if (err === 'network') {
         options.onError('network_error', getVoiceErrorMessage('network_error', options.languageCode));
       } else if (err !== 'aborted') {
-        options.onError('generic_error', getVoiceErrorMessage('generic_error', options.languageCode));
+        if (!isExplicitlyAborted) {
+          options.onError('generic_error', getVoiceErrorMessage('generic_error', options.languageCode));
+        }
       }
     };
 
     recognition.onend = () => {
-      if (options.onEnd) options.onEnd();
+      if (isCleanedUp) return;
+      // If recognition ended without isFinal event, but speech was captured in interim, deliver it
+      if (!hasReceivedResult && !isExplicitlyAborted && latestTranscript.trim()) {
+        hasReceivedResult = true;
+        options.onFinalResult(latestTranscript.trim());
+      }
+      cleanup();
+      if (options.onEnd) {
+        options.onEnd();
+      }
     };
 
-    recognition.start();
-
-    return {
+    const sessionHandle = {
       stop: () => {
+        if (isCleanedUp) return;
         isExplicitlyStopped = true;
+        // Deliver captured speech immediately upon stop if available
+        if (!hasReceivedResult && latestTranscript.trim()) {
+          hasReceivedResult = true;
+          options.onFinalResult(latestTranscript.trim());
+        }
         try {
           recognition.stop();
         } catch {
-          // ignore
+          cleanup();
+          if (options.onEnd) options.onEnd();
         }
       },
       abort: () => {
-        isExplicitlyStopped = true;
+        if (isCleanedUp) return;
+        isExplicitlyAborted = true;
         try {
           recognition.abort();
         } catch {
           // ignore
         }
+        cleanup();
+        if (options.onEnd) options.onEnd();
       }
     };
+
+    activeRecognitionSession = sessionHandle;
+    recognition.start();
+
+    return sessionHandle;
   } catch {
+    if (activeRecognitionSession) {
+      activeRecognitionSession = null;
+    }
     options.onError('generic_error', getVoiceErrorMessage('generic_error', options.languageCode));
     return null;
   }

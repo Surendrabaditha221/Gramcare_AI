@@ -27,5 +27,6 @@ export const SCHEDULED_INDIAN_LANGUAGES: IndianLanguage[] = [
   { code: 'ks', nativeName: 'کٲشُر', englishName: 'Kashmiri', script: 'Arabic-Persian' },
   { code: 'sat', nativeName: 'ᱥᱟᱱᱛᱟᱲᱤ', englishName: 'Santali', script: 'Ol Chiki' },
   { code: 'mni', nativeName: 'मणिपुरी', englishName: 'Manipuri', script: 'Meitei Mayek' },
-  { code: 'brx', nativeName: 'बड़ो', englishName: 'Bodo', script: 'Devanagari' }
+  { code: 'brx', nativeName: 'बड़ो', englishName: 'Bodo', script: 'Devanagari' },
+  { code: 'sd', nativeName: 'سنڌي / सिन्धी', englishName: 'Sindhi', script: 'Arabic-Persian / Devanagari' }
 ];

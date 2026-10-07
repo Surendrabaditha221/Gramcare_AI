@@ -5,29 +5,36 @@
  */
 
 import { TriageInput, TriageGuidanceResult } from '../types/triage';
-import { ChatMessage } from '../types/chat';
+import { ChatMessage, ChatConversation } from '../types/chat';
 import { DocumentScanResult, HealthRecord } from '../types/records';
 import { HealthcareCenter } from '../types/healthCenter';
 import { NotificationItem } from '../types/notification';
 import { UserProfile, FamilyMember } from '../types/user';
+import {
+  EmergencyEvent,
+  EmergencyContact,
+  EmergencyLocation,
+  EmergencyAcknowledgePayload,
+  EmergencyResolvePayload
+} from '../types/emergency';
+import {
+  API_BASE_URL,
+  getApiBaseUrl,
+  buildApiUrl,
+  resilientFetch,
+  ApiError,
+  ApiErrorKind
+} from '../config/apiConfig';
 
-function getApiBaseUrl(): string {
-  const envUrl = import.meta.env?.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
-  if (typeof window !== 'undefined' && window.location) {
-    const currentHost = window.location.hostname;
-    if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
-      return envUrl.replace(/localhost|127\.0\.0\.1/g, currentHost);
-    }
-  }
-  return envUrl;
-}
-
-const API_BASE_URL = getApiBaseUrl();
+export { API_BASE_URL, getApiBaseUrl, buildApiUrl, ApiError };
+export type { ApiErrorKind };
 
 export interface HealthResponse {
   status: string;
   service: string;
   version: string;
+  database?: string;
+  ai_available?: boolean;
 }
 
 export function getAuthHeaders(token?: string): Record<string, string> {
@@ -42,16 +49,37 @@ export function getAuthHeaders(token?: string): Record<string, string> {
   return headers;
 }
 
+// In-memory health status cache to prevent flooding the backend
+let cachedHealth: { data: HealthResponse | null; timestamp: number } | null = null;
+const HEALTH_CACHE_TTL_MS = 6000;
+let lastProbeDetails: { targetUrl: string; ok: boolean; statusText?: string } = {
+  targetUrl: getApiBaseUrl(),
+  ok: false
+};
+
+export function getLastProbeDetails() {
+  return lastProbeDetails;
+}
+
 /**
- * Check backend health status (GET /health)
+ * Check backend health status (GET /health or /api/health)
+ * Probes both direct LAN address and proxy with fast 2.5s timeouts.
  */
-export async function checkBackendHealth(): Promise<HealthResponse | null> {
+export async function checkBackendHealth(forceRefresh: boolean = false): Promise<HealthResponse | null> {
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
-  if (!isOnline) return null;
+  if (!isOnline) {
+    lastProbeDetails = { targetUrl: getApiBaseUrl(), ok: false, statusText: 'Device offline' };
+    return null;
+  }
+
+  const now = Date.now();
+  if (!forceRefresh && cachedHealth && (now - cachedHealth.timestamp < HEALTH_CACHE_TTL_MS)) {
+    return cachedHealth.data;
+  }
 
   const probeEndpoint = async (endpointUrl: string): Promise<HealthResponse | null> => {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
     try {
       const response = await fetch(endpointUrl, {
         method: 'GET',
@@ -61,17 +89,49 @@ export async function checkBackendHealth(): Promise<HealthResponse | null> {
       clearTimeout(timeoutId);
 
       if (!response.ok) return null;
-      const data: HealthResponse = await response.json();
-      return (data && (data.status === 'ok' || data.status === 'running' || data.service)) ? data : null;
+      const data: any = await response.json().catch(() => null);
+      if (!data) return null;
+      const isHealthy = Boolean(
+        data.status === 'ok' ||
+        data.status === 'running' ||
+        data.service ||
+        data.database
+      );
+      return isHealthy ? data : null;
     } catch {
       clearTimeout(timeoutId);
       return null;
     }
   };
 
-  let result = await probeEndpoint(`${API_BASE_URL}/health`);
+  const directBase = getApiBaseUrl();
+  let result: HealthResponse | null = null;
+
+  // 1. Direct LAN / environment URL probe
+  result = await probeEndpoint(`${directBase}/health`);
   if (!result) {
-    result = await probeEndpoint(`${API_BASE_URL}/api/health`);
+    result = await probeEndpoint(`${directBase}/api/health`);
+  }
+
+  // 2. Relative endpoint probe through Vite dev proxy (fallback for mobile on LAN)
+  if (!result && typeof window !== 'undefined') {
+    result = await probeEndpoint('/api/health');
+    if (!result) {
+      result = await probeEndpoint('/health');
+    }
+  }
+
+  lastProbeDetails = {
+    targetUrl: directBase,
+    ok: Boolean(result),
+    statusText: result ? 'Healthy' : `Unreachable at ${directBase}`
+  };
+
+  // ONLY cache successful health status (never cache failures so recovery is instant)
+  if (result) {
+    cachedHealth = { data: result, timestamp: now };
+  } else {
+    cachedHealth = null;
   }
   return result;
 }
@@ -80,18 +140,14 @@ export async function checkBackendHealth(): Promise<HealthResponse | null> {
 // Authentication APIs
 // ─────────────────────────────────────────────
 
-export async function authLogin(email: string, password: string): Promise<any | null> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch {
-    return null;
-  }
+export async function authLogin(email: string, password: string): Promise<any> {
+  return await resilientFetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+    retries: 0,
+    timeoutMs: 10000
+  });
 }
 
 export async function authRegister(
@@ -99,18 +155,14 @@ export async function authRegister(
   password: string,
   fullName: string = 'GramCare User',
   preferredLanguage: string = 'en'
-): Promise<any | null> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, fullName, preferredLanguage })
-    });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch {
-    return null;
-  }
+): Promise<any> {
+  return await resilientFetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, fullName, preferredLanguage }),
+    retries: 0,
+    timeoutMs: 12000
+  });
 }
 
 export async function authGoogle(
@@ -118,36 +170,46 @@ export async function authGoogle(
   email?: string,
   fullName?: string,
   profileImage?: string
-): Promise<any | null> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken, email, fullName, profileImage })
-    });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch {
-    return null;
-  }
+): Promise<any> {
+  return await resilientFetch('/api/auth/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken, email, fullName, profileImage }),
+    retries: 1,
+    retryDelayMs: 1200,
+    timeoutMs: 15000
+  });
+}
+
+export async function authPhone(phoneNumber: string): Promise<any> {
+  return await resilientFetch('/api/auth/phone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phoneNumber }),
+    retries: 0,
+    timeoutMs: 8000
+  });
 }
 
 export async function authGetMe(token?: string): Promise<any | null> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+    return await resilientFetch('/api/auth/me', {
       method: 'GET',
-      headers: getAuthHeaders(token)
+      headers: getAuthHeaders(token),
+      retries: 0,
+      timeoutMs: 3500
     });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch {
+  } catch (err) {
+    if (import.meta.env.DEV) {
+      console.warn('[GramCare AI API] authGetMe check notice:', err);
+    }
     return null;
   }
 }
 
 export async function authRefreshToken(refreshToken: string): Promise<any | null> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/refresh`, {
+    const response = await fetch(buildApiUrl('/api/auth/refresh'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken })
@@ -161,7 +223,7 @@ export async function authRefreshToken(refreshToken: string): Promise<any | null
 
 export async function authSetLanguage(language: string, token?: string): Promise<any | null> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/auth/language`, {
+    const response = await fetch(buildApiUrl('/api/auth/language'), {
       method: 'POST',
       headers: getAuthHeaders(token),
       body: JSON.stringify({ language })
@@ -244,6 +306,15 @@ export interface PatientContextPayload {
   currentMedications?: string;
 }
 
+export interface LocationContextPayload {
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  source?: 'gps' | 'ip' | 'manual' | 'cache';
+  addressName?: string;
+  displayName?: string;
+}
+
 /**
  * GramCare AI Health Companion Chat (POST /api/chat)
  */
@@ -252,7 +323,9 @@ export async function sendChatMessageBackendDetailed(
   patientName: string = 'Primary User',
   language: string = 'en',
   patientContext?: PatientContextPayload,
-  userId?: string
+  userId?: string,
+  locationContext?: LocationContextPayload,
+  conversationId?: string
 ): Promise<ChatResult> {
   const url = `${API_BASE_URL}/api/chat`;
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
@@ -266,6 +339,27 @@ export async function sendChatMessageBackendDetailed(
   }
 
   try {
+    let resolvedLoc = locationContext;
+    if (!resolvedLoc && typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('gramcare_active_location');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.coords && parsed.coords.source !== 'ip') {
+            resolvedLoc = {
+              latitude: parsed.coords.latitude,
+              longitude: parsed.coords.longitude,
+              accuracy: parsed.coords.accuracy,
+              source: parsed.coords.source,
+              addressName: parsed.address?.displayName
+            };
+          }
+        }
+      } catch (locErr) {
+        console.warn('[API] Could not retrieve cached location:', locErr);
+      }
+    }
+
     const response = await fetch(url, {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -274,7 +368,9 @@ export async function sendChatMessageBackendDetailed(
         patient_name: patientName,
         language,
         user_id: userId || patientContext?.userId,
-        patient_context: patientContext
+        conversation_id: conversationId,
+        patient_context: patientContext,
+        location_context: resolvedLoc
       })
     });
 
@@ -330,7 +426,9 @@ export async function streamChatMessageBackend(
   signal?: AbortSignal,
   patientContext?: PatientContextPayload,
   history?: ChatMessage[],
-  userId?: string
+  userId?: string,
+  locationContext?: LocationContextPayload,
+  conversationId?: string
 ): Promise<StreamChatResult> {
   const url = `${API_BASE_URL}/api/chat/stream`;
   const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
@@ -346,6 +444,27 @@ export async function streamChatMessageBackend(
   let receivedAnyChunk = false;
 
   try {
+    let resolvedLoc = locationContext;
+    if (!resolvedLoc && typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('gramcare_active_location');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.coords && parsed.coords.source !== 'ip') {
+            resolvedLoc = {
+              latitude: parsed.coords.latitude,
+              longitude: parsed.coords.longitude,
+              accuracy: parsed.coords.accuracy,
+              source: parsed.coords.source,
+              addressName: parsed.address?.displayName
+            };
+          }
+        }
+      } catch (locErr) {
+        console.warn('[API] Could not retrieve cached location:', locErr);
+      }
+    }
+
     const formattedHistory = history ? history.map(h => ({
       sender: h.sender,
       text: h.text
@@ -362,8 +481,10 @@ export async function streamChatMessageBackend(
         patient_name: patientName,
         language,
         user_id: userId || patientContext?.userId,
+        conversation_id: conversationId,
         patient_context: patientContext,
-        history: formattedHistory
+        history: formattedHistory,
+        location_context: resolvedLoc
       }),
       signal
     });
@@ -428,7 +549,7 @@ export async function streamChatMessageBackend(
 export async function sendChatMessageBackend(
   message: string,
   patientName: string = 'Primary User',
-  language: 'en' | 'te' = 'en'
+  language: string = 'en'
 ): Promise<ChatMessage | null> {
   const result = await sendChatMessageBackendDetailed(message, patientName, language);
   return result.success && result.message ? result.message : null;
@@ -474,9 +595,10 @@ export async function analyzeDocumentBackend(
 /**
  * Fetch Healthcare Facilities (GET /api/facilities)
  */
-export async function fetchFacilitiesBackend(): Promise<HealthcareCenter[] | null> {
+export async function fetchFacilitiesBackend(lat?: number, lon?: number, radiusKm: number = 5.0): Promise<HealthcareCenter[] | null> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/facilities`);
+    if (lat === undefined || lon === undefined) return null;
+    const response = await fetch(`${API_BASE_URL}/api/facilities?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`);
     if (!response.ok) return null;
     return await response.json();
   } catch {
@@ -515,6 +637,21 @@ export async function savePatientBackend(patient: Partial<UserProfile | FamilyMe
     return await response.json();
   } catch {
     return null;
+  }
+}
+
+/**
+ * Delete Patient / Family Member (DELETE /api/patients/{id})
+ */
+export async function deletePatientBackend(patientId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/patients/${encodeURIComponent(patientId)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -690,13 +827,18 @@ export async function deleteAccountBackend(): Promise<boolean> {
 }
 
 /**
- * Fetch Chat History from MongoDB (GET /api/chat/history)
+ * Fetch Chat History from Firestore (GET /api/chat/history)
  */
-export async function fetchChatHistoryBackend(userId?: string, patientName?: string): Promise<ChatMessage[] | null> {
+export async function fetchChatHistoryBackend(
+  userId?: string,
+  patientName?: string,
+  conversationId?: string
+): Promise<ChatMessage[] | null> {
   try {
     const params = new URLSearchParams();
     if (userId) params.append('userId', userId);
     if (patientName) params.append('patientName', patientName);
+    if (conversationId) params.append('conversationId', conversationId);
 
     const response = await fetch(`${API_BASE_URL}/api/chat/history?${params.toString()}`, { headers: getAuthHeaders() });
     if (!response.ok) return null;
@@ -708,7 +850,95 @@ export async function fetchChatHistoryBackend(userId?: string, patientName?: str
 }
 
 /**
- * Delete Chat Message from MongoDB (DELETE /api/chat/history/{id})
+ * Fetch all conversations for authenticated user (GET /api/chat/conversations)
+ */
+export async function fetchConversationsBackend(): Promise<ChatConversation[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/chat/conversations`, {
+      method: 'GET',
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) return [];
+    const res = await response.json();
+    return res.conversations || [];
+  } catch (err) {
+    console.warn('[API] fetchConversationsBackend error:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetch messages for a specific conversation (GET /api/chat/conversations/{id}/messages)
+ */
+export async function fetchConversationMessagesBackend(conversationId: string): Promise<ChatMessage[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      method: 'GET',
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) return [];
+    const res = await response.json();
+    const rawMsgs = res.messages || [];
+    return rawMsgs.map((m: any) => ({
+      id: m.id || `msg_${Date.now()}`,
+      sender: (m.role === 'user' || m.sender === 'user') ? 'user' : 'assistant',
+      text: m.content || m.text || '',
+      teluguText: m.teluguText,
+      timestamp: m.createdAt
+        ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      patientName: m.patientName
+    }));
+  } catch (err) {
+    console.warn('[API] fetchConversationMessagesBackend error:', err);
+    return [];
+  }
+}
+
+/**
+ * Create a new conversation thread in Firestore (POST /api/chat/conversations)
+ */
+export async function createConversationBackend(
+  title?: string,
+  patientName?: string,
+  id?: string
+): Promise<ChatConversation | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/chat/conversations`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ title, patientName, id })
+    });
+    if (!response.ok) return null;
+    const res = await response.json();
+    return res.conversation || null;
+  } catch (err) {
+    console.warn('[API] createConversationBackend error:', err);
+    return null;
+  }
+}
+
+/**
+ * Rename a conversation thread (PATCH /api/chat/conversations/{id})
+ */
+export async function renameConversationBackend(conversationId: string, title: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/chat/conversations/${encodeURIComponent(conversationId)}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ title: title.trim() })
+    });
+    if (!response.ok) return false;
+    const res = await response.json();
+    return res.success ?? true;
+  } catch (err) {
+    console.warn('[API] renameConversationBackend error:', err);
+    return false;
+  }
+}
+
+/**
+ * Delete Chat Message from Firestore (DELETE /api/chat/history/{id})
  */
 export async function deleteChatHistoryBackend(messageId: string): Promise<boolean> {
   try {
@@ -723,3 +953,409 @@ export async function deleteChatHistoryBackend(messageId: string): Promise<boole
     return false;
   }
 }
+
+/**
+ * Permanently Delete Conversation and all its messages (DELETE /api/chat/conversations/{id})
+ * Strictly scoped to the authenticated user.
+ */
+export async function deleteConversationBackend(conversationId: string = 'conv_default'): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/chat/conversations/${encodeURIComponent(conversationId)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      // Fallback to /api/chat/clear?conversationId=...
+      const fallback = await fetch(`${API_BASE_URL}/api/chat/clear?conversationId=${encodeURIComponent(conversationId)}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      if (!fallback.ok) return false;
+      const fbRes = await fallback.json();
+      return fbRes.success ?? true;
+    }
+    const res = await response.json();
+    return res.success ?? true;
+  } catch (err) {
+    console.warn('[API] deleteConversationBackend error:', err);
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Emergency SOS & Family Notifications Backend APIs
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Trigger an authenticated Emergency SOS alert with optional GPS coordinates.
+ * POST /api/emergency/sos
+ */
+export async function triggerSOSAlert(payload: {
+  location?: EmergencyLocation;
+  notes?: string;
+  severity?: string;
+  targetContactId?: string;
+}): Promise<EmergencyEvent> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/sos`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to trigger SOS alert' }));
+    throw new Error(err.detail || 'Failed to trigger Emergency SOS alert');
+  }
+
+  return response.json();
+}
+
+/**
+ * Get single Emergency SOS alert by ID.
+ * GET /api/emergency/{id}
+ */
+export async function getEmergencyAlert(id: string): Promise<EmergencyEvent> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/${encodeURIComponent(id)}`, {
+    method: 'GET',
+    headers: getAuthHeaders()
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Emergency alert not found' }));
+    throw new Error(err.detail || 'Emergency alert not found');
+  }
+
+  return response.json();
+}
+
+/**
+ * Retrieve patient's previous emergency alerts.
+ * GET /api/emergency/my-alerts
+ */
+export async function getMyEmergencyAlerts(): Promise<EmergencyEvent[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/emergency/my-alerts`, {
+      method: 'GET',
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) return [];
+    return response.json();
+  } catch (err) {
+    console.warn('[API] getMyEmergencyAlerts error:', err);
+    return [];
+  }
+}
+
+/**
+ * Acknowledge an Emergency Alert as a family member.
+ * POST /api/emergency/{id}/acknowledge
+ */
+export async function acknowledgeEmergencyAlert(
+  id: string,
+  payload: EmergencyAcknowledgePayload
+): Promise<EmergencyEvent> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/${encodeURIComponent(id)}/acknowledge`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to acknowledge alert' }));
+    throw new Error(err.detail || 'Failed to acknowledge alert');
+  }
+
+  return response.json();
+}
+
+/**
+ * Transition Emergency Alert status (e.g., 'Help Is on the Way').
+ * POST /api/emergency/{id}/status
+ */
+export async function updateEmergencyStatus(
+  id: string,
+  status: string,
+  notes?: string
+): Promise<EmergencyEvent> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/${encodeURIComponent(id)}/status`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ status, notes })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update alert status' }));
+    throw new Error(err.detail || 'Failed to update alert status');
+  }
+
+  return response.json();
+}
+
+/**
+ * Resolve an Emergency Alert.
+ * POST /api/emergency/{id}/resolve
+ */
+export async function resolveEmergencyAlert(
+  id: string,
+  payload: EmergencyResolvePayload
+): Promise<EmergencyEvent> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/${encodeURIComponent(id)}/resolve`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to resolve emergency alert' }));
+    throw new Error(err.detail || 'Failed to resolve emergency alert');
+  }
+
+  return response.json();
+}
+
+/**
+ * Report physical delivery of FCM push alert to recipient device.
+ * POST /api/emergency/{id}/delivered
+ */
+export async function markAlertDeliveredBackend(
+  id: string,
+  source: string = 'client',
+  contactId?: string
+): Promise<EmergencyEvent | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/emergency/${encodeURIComponent(id)}/delivered`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ source, contactId })
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch (err) {
+    console.debug('[API] markAlertDeliveredBackend note:', err);
+    return null;
+  }
+}
+
+/**
+ * Report that a recipient opened or viewed the emergency alert.
+ * POST /api/emergency/{id}/opened
+ */
+export async function markAlertOpenedBackend(
+  id: string,
+  source: string = 'client',
+  contactId?: string
+): Promise<EmergencyEvent | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/emergency/${encodeURIComponent(id)}/opened`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ source, contactId })
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch (err) {
+    console.debug('[API] markAlertOpenedBackend note:', err);
+    return null;
+  }
+}
+
+/**
+ * List Emergency Contacts for authenticated patient.
+ * GET /api/emergency/contacts
+ */
+export async function getEmergencyContacts(): Promise<EmergencyContact[]> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/emergency/contacts`, {
+      method: 'GET',
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) return [];
+    return response.json();
+  } catch (err) {
+    console.warn('[API] getEmergencyContacts error:', err);
+    return [];
+  }
+}
+
+/**
+ * Add a new Emergency Contact.
+ * POST /api/emergency/contacts
+ */
+export async function createEmergencyContact(contact: Partial<EmergencyContact>): Promise<EmergencyContact> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/contacts`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(contact)
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to create emergency contact' }));
+    throw new Error(err.detail || 'Failed to create emergency contact');
+  }
+
+  return response.json();
+}
+
+/**
+ * Update an existing Emergency Contact.
+ * PUT /api/emergency/contacts/{id}
+ */
+export async function updateEmergencyContact(id: string, updates: Partial<EmergencyContact>): Promise<EmergencyContact> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/contacts/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(updates)
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update emergency contact' }));
+    throw new Error(err.detail || 'Failed to update emergency contact');
+  }
+
+  return response.json();
+}
+
+/**
+ * Delete an Emergency Contact.
+ * DELETE /api/emergency/contacts/{id}
+ */
+export async function deleteEmergencyContact(id: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/emergency/contacts/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Register FCM device token with backend.
+ * POST /api/notifications/register-device
+ */
+export async function registerDeviceTokenBackend(payload: {
+  fcmToken: string;
+  deviceType?: string;
+  deviceName?: string;
+  contactId?: string;
+  consentGranted: boolean;
+}): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/api/notifications/register-device`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to register device' }));
+    throw new Error(err.detail || 'Failed to register push device');
+  }
+
+  return response.json();
+}
+
+/**
+ * Send test push notification to verify FCM setup.
+ * POST /api/notifications/test-push
+ */
+export async function testPushNotificationBackend(fcmToken: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}/api/notifications/test-push`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ fcmToken })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to send test push' }));
+    throw new Error(err.detail || 'Failed to send test push');
+  }
+
+  return response.json();
+}
+
+/**
+ * Unregister FCM device token with backend.
+ * DELETE /api/notifications/device/{token}
+ */
+export async function unregisterDeviceTokenBackend(token: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/notifications/device/${encodeURIComponent(token)}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check push notification registration status with backend.
+ * GET /api/notifications/status
+ */
+export async function getNotificationStatusBackend(): Promise<{ registered: boolean; activeCount: number; devices: any[] }> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/notifications/status`, {
+      method: 'GET',
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      return { registered: false, activeCount: 0, devices: [] };
+    }
+    return response.json();
+  } catch {
+    return { registered: false, activeCount: 0, devices: [] };
+  }
+}
+
+/**
+ * Lookup registered GramCare user by email, phone, or User ID.
+ * GET /api/emergency/lookup-user?query=...
+ */
+export async function lookupGramCareUser(query: string): Promise<{
+  found: boolean;
+  userId?: string;
+  fullName?: string;
+  hasPushDevice?: boolean;
+  activeDevices?: number;
+  isSelf?: boolean;
+  message?: string;
+}> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/lookup-user?query=${encodeURIComponent(query)}`, {
+    method: 'GET',
+    headers: getAuthHeaders()
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Lookup failed' }));
+    throw new Error(err.message || 'Lookup failed');
+  }
+
+  return response.json();
+}
+
+/**
+ * Clean redundant duplicate emergency contacts.
+ * POST /api/emergency/contacts/clean-duplicates
+ */
+export async function cleanDuplicateEmergencyContacts(): Promise<{
+  success: boolean;
+  removedCount: number;
+  removed: any[];
+}> {
+  const response = await fetch(`${API_BASE_URL}/api/emergency/contacts/clean-duplicates`, {
+    method: 'POST',
+    headers: getAuthHeaders()
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to clean duplicate contacts');
+  }
+
+  return response.json();
+}
+
+
+

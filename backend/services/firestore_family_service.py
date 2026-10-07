@@ -21,12 +21,37 @@ def _generate_member_id() -> str:
     return f"fam_{int(datetime.now().timestamp() * 1000)}_{secrets.token_hex(3)}"
 
 
+def is_unwanted_member(data: Dict[str, Any]) -> bool:
+    if not data:
+        return True
+    member_id = str(data.get("id") or "").strip().lower()
+    name = str(data.get("fullName") or "").strip().lower()
+    rel = str(data.get("relation") or "").strip().lower()
+
+    if member_id == "user_primary":
+        return True
+    if name == "baditha surendra other":
+        return True
+    if name == "baditha surendra" and rel in ["other", "self", "myself", ""]:
+        return True
+    return False
+
+
 async def create_family_member(uid: str, data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Creates a new family member document in users/{uid}/familyMembers/{memberId}.
     """
     if not uid:
         raise ValueError("UID is required to create a family member")
+
+    if is_unwanted_member(data):
+        logger.info(f"Skipping unwanted ghost family member creation for {data.get('fullName')}")
+        return {
+            "id": data.get("id") or "user_primary",
+            "userId": uid,
+            "fullName": data.get("fullName", "").strip(),
+            "relation": "Myself"
+        }
 
     member_id = data.get("id") or _generate_member_id()
     now = datetime.now().isoformat()
@@ -76,15 +101,26 @@ async def get_family_members(uid: str) -> List[Dict[str, Any]]:
         try:
             coll_ref = db.collection("users").document(uid).collection("familyMembers")
             docs = coll_ref.stream()
-            members = [d.to_dict() for d in docs]
-            if members:
-                return sorted(members, key=lambda x: x.get("createdAt", ""), reverse=True)
+            valid_members = []
+            for d in docs:
+                m_dict = d.to_dict()
+                if is_unwanted_member(m_dict):
+                    try:
+                        d.reference.delete()
+                        logger.info(f"Purged unwanted ghost family member users/{uid}/familyMembers/{d.id}")
+                    except Exception:
+                        pass
+                else:
+                    valid_members.append(m_dict)
+            if valid_members:
+                return sorted(valid_members, key=lambda x: x.get("createdAt", ""), reverse=True)
             return []
         except Exception as e:
             logger.warning(f"Firestore get_family_members error: {e}. Falling back to in-memory store.")
 
     user_store = _in_memory_family.get(uid, {})
-    return sorted(list(user_store.values()), key=lambda x: x.get("createdAt", ""), reverse=True)
+    valid_store = [m for m in user_store.values() if not is_unwanted_member(m)]
+    return sorted(valid_store, key=lambda x: x.get("createdAt", ""), reverse=True)
 
 
 async def get_family_member(uid: str, member_id: str) -> Optional[Dict[str, Any]]:

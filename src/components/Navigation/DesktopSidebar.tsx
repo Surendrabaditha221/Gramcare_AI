@@ -40,7 +40,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
     { id: 'assistant', label: t.navAssistant, icon: Bot },
     { id: 'notifications', label: t.navNotifications, icon: Bell },
     { id: 'profile', label: t.navProfile, icon: User },
-    { id: 'settings', label: lang === 'te' ? 'సెట్టింగ్‌లు' : 'Settings', icon: Settings }
+    { id: 'settings', label: t.navSettings, icon: Settings }
   ];
 
   return (
@@ -120,7 +120,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           <UserCheck size={18} color="#0f766e" />
           <div style={{ overflow: 'hidden', flex: 1 }}>
             <div style={{ fontSize: '10px', textTransform: 'uppercase', color: '#166534', fontWeight: 700, letterSpacing: '0.5px' }}>
-              {lang === 'te' ? 'సక్రియాత్మక రోగి' : 'Active Patient'}
+              {t.patientIndicator || 'Active Patient'}
             </div>
             <div style={{ fontSize: '13px', fontWeight: 700, color: '#0f766e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {activePatientName}
@@ -185,7 +185,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
           }}
         >
           <ShieldAlert size={18} />
-          <span>{lang === 'te' ? 'అత్యవసర SOS' : 'Emergency SOS'}</span>
+          <span>{t.sosBtn}</span>
         </button>
 
         {/* Connectivity Status */}

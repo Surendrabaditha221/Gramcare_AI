@@ -52,6 +52,7 @@ if (isFirebaseConfigured()) {
 
 export const auth = authInstance as Auth;
 export const db = dbInstance;
+export { app };
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({

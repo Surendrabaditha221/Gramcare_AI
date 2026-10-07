@@ -6,6 +6,7 @@
     "indexes": "firestore.indexes.json"
   },
   "hosting": {
+    "site": "gramcare-ai-5fffb",
     "public": "dist",
     "ignore": [
       "firebase.json",

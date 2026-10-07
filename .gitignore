@@ -42,9 +42,15 @@ backend/mongo_search.txt
 .env
 .env.local
 .env.*.local
+.env.production
 backend/.env
 backend/secrets/
 secrets/
 *.pem
 *-service-account*.json
+
+# Firebase CLI & IDE temporary folders
+.firebase/
+.gemini/
+
 

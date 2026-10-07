@@ -17,3 +17,13 @@ export interface AssistantState {
   messages: ChatMessage[];
   isTyping: boolean;
 }
+
+export interface ChatConversation {
+  id: string;
+  title: string;
+  patientName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastMessage?: string;
+}
+
